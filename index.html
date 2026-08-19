@@ -204,7 +204,7 @@ button { font-family: inherit; }
 .search-box input { background: transparent; border: none; outline: none; color: var(--text); font-size: 13px; width: 100%; }
 .search-box input::placeholder { color: var(--text-faint); }
 
-.content { flex: 1; overflow-y: auto; padding: 26px 28px 60px; }
+.content { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 26px 28px 60px; }
 .content-inner { max-width: 1400px; margin: 0 auto; animation: fadeUp .25s var(--ease); }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -353,6 +353,7 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 
 /* ============================== TABS ============================== */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 20px; overflow-x: auto; }
+@media (max-width: 640px) { .tabs { flex-wrap: wrap; overflow-x: visible; } }
 .tab-btn {
   padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--text-muted); background: none; border: none;
   cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: color .15s var(--ease);
@@ -884,6 +885,14 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 .module-tab.active { background: var(--mod-accent, var(--accent)); color: #fff; }
 .module-topbar-right { display: flex; gap: 8px; flex-shrink: 0; }
 @media (max-width: 880px) { .module-topbar { padding: 0 16px; } }
+@media (max-width: 640px) {
+  .module-topbar {
+    height: auto; flex-wrap: wrap; padding: 12px 16px; gap: 10px;
+  }
+  .module-topbar-left { width: 100%; flex-wrap: wrap; row-gap: 8px; }
+  .module-tabs { flex-wrap: wrap; }
+  .module-topbar-right { width: 100%; justify-content: flex-end; }
+}
 
 .mod-btn-primary { background: var(--mod-accent, var(--accent)); color: #fff; }
 .mod-btn-primary:hover { filter: brightness(1.08); }
@@ -1371,6 +1380,34 @@ window.Utils = (function () {
     return toISO(d);
   }
 
+  // Conta dias úteis (segunda a sexta) entre duas datas ISO, incluindo
+  // ambas as pontas. Usado para calcular horas de estágio automaticamente.
+  function businessDaysBetween(isoStart, isoEnd) {
+    const start = parseISO(isoStart), end = parseISO(isoEnd);
+    if (!start || !end || isNaN(start) || isNaN(end)) return 0;
+    let a = start, b = end;
+    if (a > b) { const t = a; a = b; b = t; }
+    let count = 0;
+    const cursor = new Date(a);
+    while (cursor <= b) {
+      const day = cursor.getDay(); // 0 = domingo, 6 = sábado
+      if (day !== 0 && day !== 6) count++;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return count;
+  }
+
+  // Horas de um registro de estágio: se for do formato novo (período +
+  // carga diária), calcula automaticamente pelos dias úteis; se for do
+  // formato antigo (um único dia com horas digitadas à mão), usa o valor
+  // que já estava salvo, sem recalcular.
+  function estagioHorasRegistro(r) {
+    if (r.dataInicio && r.dataFim && r.cargaHorariaDiaria != null) {
+      return businessDaysBetween(r.dataInicio, r.dataFim) * Number(r.cargaHorariaDiaria || 0);
+    }
+    return Number(r.horas || 0);
+  }
+
   function clamp(v, min, max) {
     return Math.max(min, Math.min(max, v));
   }
@@ -1453,7 +1490,7 @@ window.Utils = (function () {
   return {
     DIAS_SEMANA, DIAS_SEMANA_ABREV, DIAS_SEMANA_FULL, MESES,
     uid, escapeHtml, todayISO, toISO, parseISO,
-    formatDateBR, formatDateLong, daysBetween, daysFromToday, addDays,
+    formatDateBR, formatDateLong, daysBetween, daysFromToday, addDays, businessDaysBetween, estagioHorasRegistro,
     clamp, debounce, el, qs, qsa, lucide, priorityMeta, statusBadge,
     download, readFileAsText, textColorFor, ETAPA_PALETTE,
   };
@@ -1980,7 +2017,7 @@ window.Pages.dashboard = (function () {
     const nd = nextDelivery(state);
 
     const estagio = state.estagio;
-    const horasFeitas = estagio.registros.reduce((s, r) => s + Number(r.horas || 0), 0);
+    const horasFeitas = estagio.registros.reduce((s, r) => s + U.estagioHorasRegistro(r), 0);
     const horasRestantes = Math.max(0, estagio.horasObrigatorias - horasFeitas);
 
     const diasRestantesSemestre = U.daysFromToday(state.config.semestreFim);
@@ -4135,13 +4172,31 @@ window.Pages = window.Pages || {};
 window.Pages.estagio = (function () {
   const U = window.Utils;
 
+  // Compatível com registros antigos (que só tinham um único dia: `data`
+  // + `horas` digitado à mão). Para esses, tratamos início = fim = data e
+  // usamos as horas já salvas, sem recalcular nada.
+  const horasDoRegistro = U.estagioHorasRegistro;
+
+  function periodoLabel(r) {
+    if (r.dataInicio && r.dataFim) {
+      return r.dataInicio === r.dataFim
+        ? U.formatDateBR(r.dataInicio)
+        : `${U.formatDateBR(r.dataInicio)} → ${U.formatDateBR(r.dataFim)}`;
+    }
+    return U.formatDateBR(r.data);
+  }
+
+  function sortKey(r) {
+    return r.dataInicio || r.data || '';
+  }
+
   function render(container) {
     const state = window.DB.get();
     const est = state.estagio;
-    const horasFeitas = est.registros.reduce((s, r) => s + Number(r.horas || 0), 0);
+    const horasFeitas = est.registros.reduce((s, r) => s + horasDoRegistro(r), 0);
     const horasRestantes = Math.max(0, est.horasObrigatorias - horasFeitas);
     const pct = est.horasObrigatorias ? Math.round((horasFeitas / est.horasObrigatorias) * 100) : 0;
-    const sorted = [...est.registros].sort((a, b) => b.data.localeCompare(a.data));
+    const sorted = [...est.registros].sort((a, b) => sortKey(b).localeCompare(sortKey(a)));
 
     container.innerHTML = `
       <div class="content-inner">
@@ -4176,13 +4231,14 @@ window.Pages.estagio = (function () {
         ${sorted.length === 0 ? `<div class="card">${window.UI.emptyState('briefcase', 'Nenhum registro de estágio', '')}</div>` : `
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Data</th><th>Empresa</th><th>Horas</th><th>Relatório</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Período</th><th>Empresa</th><th>Carga/dia</th><th>Horas</th><th>Relatório</th><th>Status</th><th></th></tr></thead>
             <tbody>
               ${sorted.map(r => `
                 <tr>
-                  <td>${U.formatDateBR(r.data)}</td>
+                  <td>${periodoLabel(r)}</td>
                   <td>${U.escapeHtml(r.empresa)}</td>
-                  <td class="mono">${r.horas}h</td>
+                  <td class="mono">${r.cargaHorariaDiaria != null ? r.cargaHorariaDiaria + 'h' : '—'}</td>
+                  <td class="mono">${horasDoRegistro(r)}h</td>
                   <td>${r.relatorio ? `<span class="badge badge-success">Entregue</span>` : `<span class="badge badge-muted">Pendente</span>`}</td>
                   <td><span class="badge ${U.statusBadge(r.status).cls}">${U.statusBadge(r.status).label}</span></td>
                   <td><div class="row-actions">
@@ -4238,13 +4294,30 @@ window.Pages.estagio = (function () {
 
   function openRegistroForm(reg, container) {
     const isEdit = !!reg;
-    const r = reg || { id: null, data: U.todayISO(), empresa: '', horas: '', relatorio: false, status: 'pendente' };
+    const r = reg || {
+      id: null,
+      dataInicio: U.todayISO(), dataFim: U.todayISO(), cargaHorariaDiaria: 6,
+      empresa: '', relatorio: false, status: 'pendente',
+    };
+    // Registro antigo (formato de um único dia) sendo editado pela primeira
+    // vez no formato novo: pré-preenche início/fim com o dia que já existia.
+    const dataInicioInicial = r.dataInicio || r.data || U.todayISO();
+    const dataFimInicial = r.dataFim || r.data || U.todayISO();
+    const cargaInicial = r.cargaHorariaDiaria != null ? r.cargaHorariaDiaria : 6;
+
     window.UI.openModal({
       title: isEdit ? 'Editar registro' : 'Novo registro de estágio',
       bodyHtml: `
         <div class="form-grid">
-          <div class="field"><label>Data</label><input id="f-data" type="date" value="${r.data}"></div>
-          <div class="field"><label>Horas</label><input id="f-horas" type="number" min="0" step="0.5" value="${r.horas}"></div>
+          <div class="field"><label>Data de início</label><input id="f-ini" type="date" value="${dataInicioInicial}"></div>
+          <div class="field"><label>Data de fim</label><input id="f-fim" type="date" value="${dataFimInicial}"></div>
+          <div class="field"><label>Carga horária diária</label><input id="f-carga" type="number" min="0" step="0.5" value="${cargaInicial}"></div>
+          <div class="field">
+            <label>Total calculado (dias úteis)</label>
+            <div id="f-total-preview" class="mono" style="padding:9px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-subtle); font-weight:700;">
+              ${U.businessDaysBetween(dataInicioInicial, dataFimInicial) * Number(cargaInicial || 0)}h
+            </div>
+          </div>
           <div class="field span-2"><label>Empresa</label><input id="f-empresa" value="${U.escapeHtml(r.empresa)}"></div>
           <div class="field"><label>Status</label>
             <select id="f-status">
@@ -4261,6 +4334,17 @@ window.Pages.estagio = (function () {
         <button class="btn btn-ghost" id="f-cancel">Cancelar</button><button class="btn btn-primary" id="f-save">Salvar</button>
       `,
       onMount: (overlay) => {
+        const updatePreview = () => {
+          const ini = U.qs('#f-ini', overlay).value;
+          const fim = U.qs('#f-fim', overlay).value;
+          const carga = Number(U.qs('#f-carga', overlay).value || 0);
+          const total = ini && fim ? U.businessDaysBetween(ini, fim) * carga : 0;
+          U.qs('#f-total-preview', overlay).textContent = `${total}h`;
+        };
+        U.qs('#f-ini', overlay).addEventListener('input', updatePreview);
+        U.qs('#f-fim', overlay).addEventListener('input', updatePreview);
+        U.qs('#f-carga', overlay).addEventListener('input', updatePreview);
+
         U.qs('#f-cancel', overlay).addEventListener('click', window.UI.closeModal);
         if (isEdit) U.qs('#f-delete', overlay).addEventListener('click', () => {
           window.DB.save(s => { s.estagio.registros = s.estagio.registros.filter(x => x.id !== r.id); });
@@ -4269,13 +4353,22 @@ window.Pages.estagio = (function () {
         });
         U.qs('#f-save', overlay).addEventListener('click', () => {
           const payload = {
-            data: U.qs('#f-data', overlay).value, horas: Number(U.qs('#f-horas', overlay).value || 0),
+            dataInicio: U.qs('#f-ini', overlay).value,
+            dataFim: U.qs('#f-fim', overlay).value,
+            cargaHorariaDiaria: Number(U.qs('#f-carga', overlay).value || 0),
             empresa: U.qs('#f-empresa', overlay).value.trim(), status: U.qs('#f-status', overlay).value,
             relatorio: U.qs('#f-relatorio', overlay).checked,
           };
           window.DB.save(s => {
-            if (isEdit) Object.assign(s.estagio.registros.find(x => x.id === r.id), payload);
-            else s.estagio.registros.push(Object.assign({ id: U.uid('estagio') }, payload));
+            if (isEdit) {
+              const alvo = s.estagio.registros.find(x => x.id === r.id);
+              // Remove os campos do formato antigo pra não ficar com dado
+              // duplicado/inconsistente depois de editar no formato novo.
+              delete alvo.data; delete alvo.horas;
+              Object.assign(alvo, payload);
+            } else {
+              s.estagio.registros.push(Object.assign({ id: U.uid('estagio') }, payload));
+            }
           });
           window.UI.closeModal();
           window.UI.toast('Registro salvo', 'success');
