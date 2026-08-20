@@ -239,6 +239,9 @@ button { font-family: inherit; }
 .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 1200px) { .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+.dash-split-13 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.dash-split-14 { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 720px) { .dash-split-13, .dash-split-14 { grid-template-columns: 1fr; } }
 
 .card {
   background: var(--card); border: 1px solid var(--border-soft); border-radius: var(--radius);
@@ -861,7 +864,7 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 .dg-card-icon svg { width: 16px; height: 16px; }
 .dg-card-label { font-size: 11.5px; color: var(--text-faint); font-weight: 600; }
 .dg-card-value { font-size: 14px; font-weight: 700; line-height: 1.3; }
-.dg-content { display: grid; grid-template-columns: 1.6fr 1fr; gap: 18px; align-items: start; }
+.dg-content { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 @media (max-width: 900px) { .dg-content { grid-template-columns: 1fr; } }
 .dg-section-title { font-size: 13px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
 .dg-source-tag {
@@ -1033,7 +1036,7 @@ window.CloudSync = (function () {
     'pessoal_workspace_v1',
   ];
   const PIN_KEY = 'laura_sync_pin_v1';
-  const LAST_SYNC_KEY = 'laura_sync_last_updated_v1';
+  const META_KEY = 'laura_sync_meta_v1'; // guarda, POR CHAVE, o carimbo de tempo já confirmado
   const DEVICE_KEY = 'laura_sync_device_id_v1';
   const PULL_TIMEOUT_MS = 7000;
   const COLLECTION = 'sync_data';
@@ -1041,9 +1044,11 @@ window.CloudSync = (function () {
   let workspaceId = null;
   let deviceId = null;
   let pushTimer = null;
+  let dirtyKeys = new Set();
   let applyingRemote = false; // evita reagir às próprias escritas durante um pull
   let originalSetItem = null;
   let originalRemoveItem = null;
+  let originalGetItem = null;
   let firestoreDb = null;
   let unsubscribeSnapshot = null;
 
@@ -1084,26 +1089,54 @@ window.CloudSync = (function () {
     return deviceId;
   }
 
-  function snapshotLocalData() {
-    const payload = {};
-    WATCHED_KEYS.forEach((k) => {
-      const raw = localStorage.getItem(k);
-      if (raw !== null) payload[k] = raw;
-    });
-    return payload;
+  /* ------------------------- Metadados locais (por chave) ------------------------- */
+  // Para cada uma das WATCHED_KEYS, guardamos aqui o carimbo de tempo (do
+  // servidor) da versão mais recente que ESTE aparelho já recebeu/confirmou.
+  // É isso que permite comparar "o que é mais novo" campo a campo, em vez
+  // de sobrescrever o workspace inteiro de uma vez (que foi a causa da
+  // perda de dados).
+  function getMeta() {
+    try { return JSON.parse(localStorage.getItem(META_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function setMetaTimestamp(key, isoString) {
+    const meta = getMeta();
+    meta[key] = isoString;
+    originalSetItem ? originalSetItem.call(localStorage, META_KEY, JSON.stringify(meta)) : localStorage.setItem(META_KEY, JSON.stringify(meta));
   }
 
-  function applyRemoteData(payload) {
+  function applyRemoteField(key, field) {
     applyingRemote = true;
     try {
-      WATCHED_KEYS.forEach((k) => {
-        if (Object.prototype.hasOwnProperty.call(payload, k)) {
-          originalSetItem.call(localStorage, k, payload[k]);
-        }
-      });
+      if (field.value === null) originalRemoveItem.call(localStorage, key);
+      else originalSetItem.call(localStorage, key, field.value);
     } finally {
       applyingRemote = false;
     }
+  }
+
+  // Processa o documento inteiro vindo do Firestore, campo por campo.
+  // Só aplica (sobrescreve o localStorage) as chaves cujo carimbo de tempo
+  // remoto é mais novo do que o último que este aparelho já confirmou —
+  // e nunca aplica uma chave que foi escrita por ESTE MESMO aparelho (é só
+  // o eco da própria escrita voltando do servidor).
+  function processRemoteDoc(data, isBootPull) {
+    let appliedSomething = false;
+    WATCHED_KEYS.forEach((key) => {
+      const field = data[key];
+      if (!field || !field.updated_at || !field.updated_at.toDate) return; // escrita pendente de confirmação do servidor
+      const remoteIso = field.updated_at.toDate().toISOString();
+      const meta = getMeta();
+      const localIso = meta[key];
+      if (localIso && new Date(remoteIso) <= new Date(localIso)) return; // já temos essa versão (ou mais nova)
+
+      const isOwnWrite = field.last_writer === getDeviceId();
+      if (!isOwnWrite) {
+        applyRemoteField(key, field);
+        appliedSomething = true;
+      }
+      setMetaTimestamp(key, remoteIso);
+    });
+    return appliedSomething;
   }
 
   function withTimeout(promise, ms) {
@@ -1113,47 +1146,55 @@ window.CloudSync = (function () {
     ]);
   }
 
-  async function fetchRemoteRow() {
+  async function pullOnce() {
     const snap = await docRef().get({ source: 'server' });
-    if (!snap.exists) return null;
-    const data = snap.data();
-    const updatedAt = data.updated_at && data.updated_at.toDate
-      ? data.updated_at.toDate().toISOString()
-      : new Date().toISOString();
-    return { payload: data.payload || {}, updated_at: updatedAt, last_writer: data.last_writer || null };
+    if (!snap.exists) return false;
+    return processRemoteDoc(snap.data() || {}, true);
   }
 
-  async function pushSnapshot() {
-    if (!isConfigured() || !workspaceId) return;
-    const nowIso = new Date().toISOString();
-    try {
-      await docRef().set({
-        payload: snapshotLocalData(),
+  async function pushDirtyKeys() {
+    if (!isConfigured() || !workspaceId || dirtyKeys.size === 0) return;
+    const keysToSend = Array.from(dirtyKeys);
+    dirtyKeys.clear();
+    const updates = {};
+    keysToSend.forEach((key) => {
+      const raw = originalGetItem(key);
+      updates[key] = {
+        value: raw === null ? null : raw,
         updated_at: firebase.firestore.FieldValue.serverTimestamp(),
         last_writer: getDeviceId(),
-      }, { merge: true });
-      localStorage.setItem(LAST_SYNC_KEY, nowIso);
+      };
+    });
+    try {
+      await docRef().set(updates, { merge: true });
+      // Meta local é atualizada quando o eco desta escrita voltar pelo
+      // listener em tempo real (garante o carimbo de tempo real do
+      // servidor, não uma estimativa do relógio do aparelho).
     } catch (e) {
+      // Falhou: devolve as chaves pra fila pra tentar de novo depois.
+      keysToSend.forEach((k) => dirtyKeys.add(k));
       console.warn('CloudSync: não foi possível enviar para a nuvem agora.', e);
     }
   }
 
-  function schedulePush() {
+  function schedulePush(key) {
     if (!isConfigured() || applyingRemote) return;
+    dirtyKeys.add(key);
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(pushSnapshot, 1200);
+    pushTimer = setTimeout(pushDirtyKeys, 1200);
   }
 
   function watchLocalStorage() {
     originalSetItem = localStorage.setItem.bind(localStorage);
     originalRemoveItem = localStorage.removeItem.bind(localStorage);
+    originalGetItem = localStorage.getItem.bind(localStorage);
     localStorage.setItem = function (key, value) {
       originalSetItem(key, value);
-      if (WATCHED_KEYS.includes(key)) schedulePush();
+      if (WATCHED_KEYS.includes(key)) schedulePush(key);
     };
     localStorage.removeItem = function (key) {
       originalRemoveItem(key);
-      if (WATCHED_KEYS.includes(key)) schedulePush();
+      if (WATCHED_KEYS.includes(key)) schedulePush(key);
     };
   }
 
@@ -1175,20 +1216,13 @@ window.CloudSync = (function () {
   function startBackgroundChecks() {
     // onSnapshot mantém uma conexão viva com o Firestore: assim que outro
     // aparelho salvar algo, este listener dispara quase instantaneamente
-    // (sem precisar ficar checando de tempos em tempos).
+    // (sem precisar ficar checando de tempos em tempos). Cada campo é
+    // avaliado individualmente por processRemoteDoc.
     unsubscribeSnapshot = docRef().onSnapshot(
       (snap) => {
-        if (!snap.exists || applyingRemote) return;
-        const data = snap.data();
-        if (!data || !data.updated_at || !data.updated_at.toDate) return; // escrita própria ainda "pendente" no servidor
-        // Se quem escreveu por último foi ESTE aparelho, não é novidade —
-        // é só o eco da nossa própria alteração voltando do servidor.
-        if (data.last_writer && data.last_writer === getDeviceId()) return;
-        const remoteIso = data.updated_at.toDate().toISOString();
-        const lastLocal = localStorage.getItem(LAST_SYNC_KEY);
-        if (!lastLocal || new Date(remoteIso) > new Date(lastLocal)) {
-          showUpdateToast();
-        }
+        if (!snap.exists) return;
+        const appliedSomething = processRemoteDoc(snap.data() || {}, false);
+        if (appliedSomething) showUpdateToast();
       },
       (e) => console.warn('CloudSync: listener em tempo real falhou.', e)
     );
@@ -1261,6 +1295,7 @@ window.CloudSync = (function () {
   function changePin() {
     if (unsubscribeSnapshot) unsubscribeSnapshot();
     localStorage.removeItem(PIN_KEY);
+    (originalRemoveItem || localStorage.removeItem.bind(localStorage))(META_KEY);
     window.location.reload();
   }
 
@@ -1272,19 +1307,17 @@ window.CloudSync = (function () {
       return;
     }
 
+    // Precisa existir ANTES de qualquer pull, porque aplicar dados remotos
+    // já usa essas referências originais do localStorage.
+    watchLocalStorage();
+
     showBootOverlay('Conectando ao seu espaço sincronizado…');
-    let hadRemoteData = false;
     try {
       const pin = await askPin();
       workspaceId = await sha256Hex(pin);
 
       try {
-        const row = await withTimeout(fetchRemoteRow(), PULL_TIMEOUT_MS);
-        if (row && row.payload) {
-          hadRemoteData = true;
-          applyRemoteData(row.payload);
-          localStorage.setItem(LAST_SYNC_KEY, row.updated_at);
-        }
+        await withTimeout(pullOnce(), PULL_TIMEOUT_MS);
       } catch (e) {
         console.warn('CloudSync: sem conexão com a nuvem agora, usando dados locais.', e);
       }
@@ -1292,14 +1325,19 @@ window.CloudSync = (function () {
       hideBootOverlay();
     }
 
-    watchLocalStorage();
     startBackgroundChecks();
     startAppFn();
 
-    // Só envia uma cópia inicial se este for o primeiro aparelho a
-    // configurar o sync (ainda não existia nada salvo na nuvem). Depois
-    // disso, os envios acontecem só quando algo realmente muda.
-    if (!hadRemoteData) schedulePush();
+    // Depois do pull, qualquer chave que já tenha dado local mas NUNCA foi
+    // confirmada com a nuvem (meta ainda não tem essa chave) precisa ser
+    // enviada agora — cobre o primeiro aparelho a configurar o sync, ou
+    // dados criados localmente antes de ativar a sincronização. Chaves já
+    // reconciliadas não são reenviadas à toa a cada abertura do app.
+    const meta = getMeta();
+    WATCHED_KEYS.forEach((k) => {
+      if (localStorage.getItem(k) !== null && !meta[k]) dirtyKeys.add(k);
+    });
+    if (dirtyKeys.size > 0) schedulePush();
   }
 
   return { boot, changePin, isConfigured };
@@ -2049,7 +2087,7 @@ window.Pages.dashboard = (function () {
           ${statCard('graduation-cap', 'Fim do semestre', diasRestantesSemestre !== null ? `${diasRestantesSemestre}d` : '—', 'dias restantes', null)}
         </div>
 
-        <div class="grid grid-2" style="grid-template-columns: 1.3fr 1fr; align-items:start;">
+        <div class="dash-split-13">
           <div>
             <div class="section">
               <div class="section-title"><h3><i data-lucide="check-square"></i> Hoje</h3></div>
@@ -2486,7 +2524,7 @@ window.Pages.disciplinas = (function () {
 
   function renderInfoTab(el, d) {
     el.innerHTML = `
-      <div class="grid grid-2" style="grid-template-columns: 1.4fr 1fr;">
+      <div class="dash-split-14">
         <div class="card">
           <div class="section-title"><h3>Ementa</h3></div>
           <p class="text-muted" style="font-size:13.5px; line-height:1.7; white-space:pre-wrap;">${d.ementa ? U.escapeHtml(d.ementa) : 'Nenhuma ementa cadastrada.'}</p>
@@ -3342,7 +3380,7 @@ window.Pages.tcc = (function () {
         <div class="content-inner">
           ${tccHeader('dashboard')}
 
-          <div class="grid grid-2" style="grid-template-columns: 1fr 1fr;">
+          <div class="grid grid-2">
             <div class="card">
               <div class="section-title"><h3><i data-lucide="trending-up"></i> Progresso geral</h3></div>
               <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:10px;">
@@ -6929,7 +6967,7 @@ window.IgrejaApp = (function () {
         <button class="btn mod-btn-primary btn-sm" id="btn-add-escala"><i data-lucide="plus"></i> Nova escala</button>
       </div>
 
-      <div style="display:grid; grid-template-columns: 1.3fr 1fr; gap:20px; align-items:start;">
+      <div class="dash-split-13" style="gap:20px;">
         <div class="card">
           <div class="dg-section-title"><i data-lucide="list"></i> Escalas (${list.length})</div>
           <div id="escalas-list"></div>
@@ -7371,7 +7409,7 @@ window.EventosApp = (function () {
         <button class="btn mod-btn-primary btn-sm" id="btn-add-evento"><i data-lucide="plus"></i> Novo evento</button>
       </div>
 
-      <div style="display:grid; grid-template-columns: 1.3fr 1fr; gap:20px; align-items:start;">
+      <div class="dash-split-13" style="gap:20px;">
         <div class="card">
           <div class="dg-section-title"><i data-lucide="list"></i> Eventos (${list.length})</div>
           <div id="eventos-list"></div>
