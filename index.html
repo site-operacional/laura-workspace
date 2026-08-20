@@ -7479,12 +7479,25 @@ window.EventosApp = (function () {
     return window.DashboardGeral.collectEvents().filter(i => i.source !== 'Eventos');
   }
 
+  // Casa um item vindo de outro módulo com uma categoria da tela de
+  // Eventos, comparando o nome de origem (ex: source "Faculdade" com a
+  // categoria "Faculdade"). Itens de disciplinas específicas (cujo source
+  // é o nome da disciplina) continuam aparecendo em "Todas".
+  function matchesCategoriaAuto(item, catId) {
+    const cat = catById(catId);
+    if (!cat) return false;
+    return item.source.toLowerCase() === cat.nome.toLowerCase();
+  }
+
   function renderEventos(content) {
     const state = window.EventosDB.get();
     const list = state.eventos
       .filter(ev => catFilter === 'todas' || ev.categoriaId === catFilter)
       .sort((a, b) => (a.data || '9999').localeCompare(b.data || '9999'));
-    const autoItems = catFilter === 'todas' ? autoImportedItems() : [];
+    const autoItemsAll = autoImportedItems();
+    const autoItems = catFilter === 'todas'
+      ? autoItemsAll
+      : autoItemsAll.filter(i => matchesCategoriaAuto(i, catFilter));
 
     content.innerHTML = `
       <div class="filter-bar">
