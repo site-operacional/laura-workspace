@@ -6050,6 +6050,7 @@ window.FolderWizard = (function () {
 /* ---------------------------------- Dashboard Geral ----------------------------------- */
 window.DashboardGeral = (function () {
   const U = window.Utils;
+  let refDate = new Date();
 
   function collectEvents() {
     // Reúne itens de todos os módulos disponíveis em um único formato.
@@ -6187,6 +6188,19 @@ window.DashboardGeral = (function () {
 
       <div class="dg-cards" id="dg-cards"></div>
 
+      <div class="card section">
+        <div class="page-header" style="margin-bottom:14px;">
+          <div class="dg-section-title" style="margin:0;"><i data-lucide="calendar-days"></i> Calendário geral</div>
+          <div class="header-actions">
+            <button class="btn btn-ghost btn-icon" id="dg-cal-prev"><i data-lucide="chevron-left"></i></button>
+            <button class="btn btn-soft btn-sm" id="dg-cal-today">Hoje</button>
+            <button class="btn btn-ghost btn-icon" id="dg-cal-next"><i data-lucide="chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="subtitle" style="margin:-8px 0 12px;">${U.MESES[refDate.getMonth()]} de ${refDate.getFullYear()} · reúne Faculdade, Igreja, Eventos, Financeiro e Pessoal</div>
+        <div class="calendar-grid" id="dg-calendar-grid"></div>
+      </div>
+
       <div class="dg-content">
         <div class="card">
           <div class="dg-section-title"><i data-lucide="calendar-days"></i> Próximos 7 dias</div>
@@ -6215,6 +6229,16 @@ window.DashboardGeral = (function () {
     `).join('');
     content.querySelector('#dg-cards').innerHTML = cardsHtml;
 
+    document.getElementById('dg-calendar-grid').innerHTML =
+      U.DIAS_SEMANA_ABREV.map(d => `<div class="calendar-weekday">${d}</div>`).join('') + buildDgCalendarDays(items);
+    U.lucide();
+    content.querySelector('#dg-cal-prev').addEventListener('click', () => { refDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1); renderContent(content); });
+    content.querySelector('#dg-cal-next').addEventListener('click', () => { refDate = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 1); renderContent(content); });
+    content.querySelector('#dg-cal-today').addEventListener('click', () => { refDate = new Date(); renderContent(content); });
+    U.qsa('[data-dg-day]', content).forEach(dayEl => {
+      dayEl.addEventListener('click', () => openDgDayModal(dayEl.getAttribute('data-dg-day'), items));
+    });
+
     function listHtml(list, emptyMsg) {
       if (!list.length) return window.UI.emptyState('calendar', emptyMsg, '');
       return `<div class="timeline">` + list.map(i => `
@@ -6231,6 +6255,62 @@ window.DashboardGeral = (function () {
     content.querySelector('#dg-upcoming').innerHTML = listHtml(upcoming, 'Nada nos próximos 7 dias.');
 
     U.lucide();
+  }
+
+  function buildDgCalendarDays(items) {
+    const year = refDate.getFullYear(), month = refDate.getMonth();
+    const today = U.todayISO();
+    const itemsByDay = {};
+    items.forEach(i => { (itemsByDay[i.date] = itemsByDay[i.date] || []).push(i); });
+
+    const first = new Date(year, month, 1);
+    const startOffset = first.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const prevMonthDays = new Date(year, month, 0).getDate();
+
+    const cells = [];
+    for (let i = startOffset - 1; i >= 0; i--) cells.push({ day: prevMonthDays - i, other: true, iso: null });
+    for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, other: false, iso: U.toISO(new Date(year, month, d)) });
+    const rem = (7 - (cells.length % 7)) % 7;
+    for (let d = 1; d <= rem; d++) cells.push({ day: d, other: true, iso: null });
+
+    return cells.map(c => {
+      if (c.other) return `<div class="calendar-day other-month"><span class="day-num">${c.day}</span></div>`;
+      const dayItems = itemsByDay[c.iso] || [];
+      return `
+        <div class="calendar-day ${c.iso === today ? 'today' : ''}" data-dg-day="${c.iso}" ${dayItems.length ? 'style="cursor:pointer;"' : ''}>
+          <span class="day-num">${c.day}</span>
+          ${dayItems.slice(0, 3).map(i => `<div class="calendar-event" style="background:${i.color}" title="${U.escapeHtml(i.label)} (${U.escapeHtml(i.source)})">${U.escapeHtml(i.label)}</div>`).join('')}
+          ${dayItems.length > 3 ? `<span class="text-faint" style="font-size:10px;">+${dayItems.length - 3} mais</span>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function openDgDayModal(iso, items) {
+    const dayItems = items.filter(i => i.date === iso);
+    if (!dayItems.length) return;
+    window.UI.openModal({
+      title: U.formatDateLong(iso),
+      bodyHtml: `
+        <div class="timeline">
+          ${dayItems.map(i => `
+            <div class="timeline-item">
+              <div class="timeline-dot" style="background:${i.color};"></div>
+              <div class="timeline-content">
+                <div class="t-title">${U.escapeHtml(i.label)}</div>
+                <div class="t-meta">${i.kind} · <span class="dg-source-tag" style="background:${i.color};">${U.escapeHtml(i.source)}</span></div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <p class="text-faint" style="font-size:11.5px; margin-top:14px;">Pra editar qualquer item, abra o módulo de origem indicado (Faculdade, Igreja, Financeiro...).</p>
+      `,
+      footerHtml: `<button class="btn btn-primary" id="f-close-day">Fechar</button>`,
+      onMount: (overlay) => {
+        U.qs('#f-close-day', overlay).addEventListener('click', window.UI.closeModal);
+      }
+    });
   }
 
   return { render, collectEvents };
@@ -7386,15 +7466,25 @@ window.EventosApp = (function () {
 
   let catFilter = 'todas';
   let eventosRefMonth = new Date();
+  let showAuto = true; // mostra também itens vindos de outros módulos (Faculdade, Igreja, etc.)
 
   function categorias() { return window.EventosDB.get().categorias; }
   function catById(id) { return categorias().find(c => c.id === id); }
+
+  // Itens que vieram de OUTROS módulos (Faculdade, Igreja, Financeiro,
+  // Pessoal) — não pertencem a este app, então aparecem como somente
+  // leitura, com um selo indicando de onde vieram e como editar.
+  function autoImportedItems() {
+    if (!showAuto || !window.DashboardGeral) return [];
+    return window.DashboardGeral.collectEvents().filter(i => i.source !== 'Eventos');
+  }
 
   function renderEventos(content) {
     const state = window.EventosDB.get();
     const list = state.eventos
       .filter(ev => catFilter === 'todas' || ev.categoriaId === catFilter)
       .sort((a, b) => (a.data || '9999').localeCompare(b.data || '9999'));
+    const autoItems = catFilter === 'todas' ? autoImportedItems() : [];
 
     content.innerHTML = `
       <div class="filter-bar">
@@ -7406,12 +7496,15 @@ window.EventosApp = (function () {
         `).join('')}
         <button class="icon-btn" id="btn-manage-cats" title="Gerenciar categorias"><i data-lucide="settings-2"></i></button>
         <div style="flex:1;"></div>
+        <button class="filter-chip ${showAuto ? 'mod-chip-active' : ''}" id="btn-toggle-auto" title="Mostrar eventos lançados em outros módulos (Faculdade, Igreja, etc.)">
+          <i data-lucide="link-2" style="width:12px;height:12px;"></i> Outros módulos
+        </button>
         <button class="btn mod-btn-primary btn-sm" id="btn-add-evento"><i data-lucide="plus"></i> Novo evento</button>
       </div>
 
       <div class="dash-split-13" style="gap:20px;">
         <div class="card">
-          <div class="dg-section-title"><i data-lucide="list"></i> Eventos (${list.length})</div>
+          <div class="dg-section-title"><i data-lucide="list"></i> Eventos (${list.length}${autoItems.length ? ' + ' + autoItems.length + ' de outros módulos' : ''})</div>
           <div id="eventos-list"></div>
         </div>
         <div class="card">
@@ -7422,15 +7515,22 @@ window.EventosApp = (function () {
     `;
     U.lucide();
 
-    document.getElementById('eventos-list').innerHTML = list.length
-      ? `<div class="item-grid">` + list.map(ev => eventoCard(ev)).join('') + `</div>`
-      : window.UI.emptyState('party-popper', 'Nenhum evento por aqui', 'Cadastre um evento pessoal, com amigos, família e mais.');
+    const autoHtml = autoItems.length ? `
+      <div class="dg-section-title" style="margin-top:16px; font-size:11.5px; color:var(--text-faint);"><i data-lucide="link-2" style="width:12px;height:12px;"></i> Vindos de outros módulos</div>
+      <div class="item-grid">${autoItems.map(autoItemCard).join('')}</div>
+    ` : '';
 
-    renderEventosMiniCal(document.getElementById('eventos-cal'), state, content);
+    document.getElementById('eventos-list').innerHTML = (list.length
+      ? `<div class="item-grid">` + list.map(ev => eventoCard(ev)).join('') + `</div>`
+      : (autoItems.length ? '' : window.UI.emptyState('party-popper', 'Nenhum evento por aqui', 'Cadastre um evento pessoal, com amigos, família e mais.'))
+    ) + autoHtml;
+
+    renderEventosMiniCal(document.getElementById('eventos-cal'), state, content, autoItems);
 
     U.lucide();
     U.qsa('[data-cat]', content).forEach(b => b.addEventListener('click', () => { catFilter = b.getAttribute('data-cat'); renderEventos(content); }));
     document.getElementById('btn-manage-cats').addEventListener('click', () => openCategoriaManager(content));
+    document.getElementById('btn-toggle-auto').addEventListener('click', () => { showAuto = !showAuto; renderEventos(content); });
     document.getElementById('btn-add-evento').addEventListener('click', () => openEventoForm(null, content));
     U.qsa('[data-open-evento]', content).forEach(b => b.addEventListener('click', () => {
       const ev = window.EventosDB.get().eventos.find(x => x.id === b.getAttribute('data-open-evento'));
@@ -7438,7 +7538,26 @@ window.EventosApp = (function () {
     }));
   }
 
-  function renderEventosMiniCal(container, state, content) {
+  // Card somente-leitura para itens vindos de outros módulos. Editar
+  // precisa ser feito no módulo de origem — clicar mostra onde ir.
+  function autoItemCard(item) {
+    return `
+      <div class="card" style="opacity:.85; border-style:dashed;">
+        <div class="item-card-top">
+          <div>
+            <div class="item-card-title">${U.escapeHtml(item.label)}</div>
+            <div class="item-card-meta" style="margin-top:4px;">
+              <i data-lucide="calendar" style="width:12px;height:12px;"></i> ${U.formatDateBR(item.date)}
+            </div>
+          </div>
+          <span class="dg-source-tag" style="background:${item.color};">${U.escapeHtml(item.source)}</span>
+        </div>
+        <div class="text-faint" style="font-size:11px; margin-top:8px;"><i data-lucide="pencil" style="width:11px;height:11px;"></i> Editar em: ${U.escapeHtml(item.source)}</div>
+      </div>
+    `;
+  }
+
+  function renderEventosMiniCal(container, state, content, autoItems) {
     const ref = eventosRefMonth;
     const year = ref.getFullYear(), month = ref.getMonth();
     const firstDay = new Date(year, month, 1);
@@ -7448,14 +7567,16 @@ window.EventosApp = (function () {
     const todayISO = U.todayISO();
 
     const eventsByDay = {};
-    state.eventos.forEach(e => { if (e.data) (eventsByDay[e.data] = eventsByDay[e.data] || []).push(e); });
+    state.eventos.forEach(e => { if (e.data) (eventsByDay[e.data] = eventsByDay[e.data] || []).push({ ...e, __auto: false }); });
+    (autoItems || []).forEach(i => { (eventsByDay[i.date] = eventsByDay[i.date] || []).push({ nome: i.label, __auto: true, __color: i.color, __source: i.source }); });
 
     let cells = '';
     for (let i = startOffset - 1; i >= 0; i--) cells += `<div class="calendar-mini-day other-month">${daysInPrevMonth - i}</div>`;
     for (let d = 1; d <= daysInMonth; d++) {
       const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const has = eventsByDay[iso] && eventsByDay[iso].length;
-      const dotColor = has ? (catById(eventsByDay[iso][0].categoriaId) || {}).cor || ACCENT : '';
+      const first = has ? eventsByDay[iso][0] : null;
+      const dotColor = has ? (first.__auto ? first.__color : ((catById(first.categoriaId) || {}).cor || ACCENT)) : '';
       cells += `<div class="calendar-mini-day ${iso === todayISO ? 'today' : ''} ${has ? 'has-event' : ''}" data-day="${iso}" style="cursor:pointer; ${has ? `--dot-color:${dotColor};` : ''}">${d}</div>`;
     }
     const totalCells = startOffset + daysInMonth;
@@ -7474,13 +7595,15 @@ window.EventosApp = (function () {
       </div>
     `;
     U.lucide();
-    container.querySelector('#ev-cal-prev').addEventListener('click', () => { eventosRefMonth = new Date(year, month - 1, 1); renderEventosMiniCal(container, state, content); });
-    container.querySelector('#ev-cal-next').addEventListener('click', () => { eventosRefMonth = new Date(year, month + 1, 1); renderEventosMiniCal(container, state, content); });
+    container.querySelector('#ev-cal-prev').addEventListener('click', () => { eventosRefMonth = new Date(year, month - 1, 1); renderEventosMiniCal(container, state, content, autoItems); });
+    container.querySelector('#ev-cal-next').addEventListener('click', () => { eventosRefMonth = new Date(year, month + 1, 1); renderEventosMiniCal(container, state, content, autoItems); });
     U.qsa('[data-day]', container).forEach(d => d.addEventListener('click', () => {
       const iso = d.getAttribute('data-day');
-      const evs = eventsByDay[iso] || [];
-      if (evs.length === 1) openEventoForm(evs[0], content);
-      else if (evs.length > 1) window.UI.toast(`${evs.length} eventos em ${U.formatDateBR(iso)} — veja a lista.`, 'default');
+      const evs = (eventsByDay[iso] || []).filter(e => !e.__auto);
+      const autos = (eventsByDay[iso] || []).filter(e => e.__auto);
+      if (evs.length === 1 && autos.length === 0) openEventoForm(evs[0], content);
+      else if (evs.length + autos.length > 1) window.UI.toast(`${evs.length + autos.length} evento(s) em ${U.formatDateBR(iso)} — veja a lista.`, 'default');
+      else if (autos.length === 1) window.UI.toast(`"${autos[0].nome}" — edite em ${autos[0].__source}.`, 'default');
       else openEventoForm({ id: null, nome: '', categoriaId: categorias()[0].id, data: iso, horario: '', local: '', descricao: '', checklist: [], anexos: [], observacoes: '' }, content);
     }));
   }
