@@ -1757,6 +1757,46 @@ window.DB = (function () {
    Componentes de interface reutilizáveis: sidebar, modal, toast, progress bar.
    ========================================================================== */
 
+/* ==========================================================================
+   LocalFiles — guarda arquivos pequenos (PDF/imagem) anexados nas telas de
+   Arquivos/Bibliografia. Fica FORA das WATCHED_KEYS do CloudSync de
+   propósito: arquivos em base64 são grandes demais pra caber no mesmo
+   documento sincronizado que guarda o resto dos seus dados (que tem um
+   limite de tamanho). Por isso esses anexos ficam só no aparelho onde
+   foram enviados — os outros aparelhos veem o nome do arquivo (isso sim
+   sincroniza, é só texto), mas não o conteúdo.
+   ========================================================================== */
+window.LocalFiles = (function () {
+  const KEY = 'laura_local_files_v1';
+  const MAX_BYTES = 400 * 1024; // ~400KB por arquivo
+
+  function getAll() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function save(id, dataUrl) {
+    const all = getAll();
+    all[id] = dataUrl;
+    localStorage.setItem(KEY, JSON.stringify(all));
+  }
+  function get(id) {
+    return getAll()[id] || null;
+  }
+  function remove(id) {
+    const all = getAll();
+    delete all[id];
+    localStorage.setItem(KEY, JSON.stringify(all));
+  }
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  return { save, get, remove, readFileAsDataUrl, MAX_BYTES };
+})();
+
 window.UI = (function () {
   const { qs, el, lucide } = window.Utils;
 
@@ -1916,10 +1956,79 @@ window.UI = (function () {
     `;
   }
 
+  // ------------------------------------------------------------------
+  // Anexo de arquivo pequeno (fica salvo só neste aparelho — ver
+  // window.LocalFiles). Usado nas abas de Arquivos/Bibliografia das
+  // disciplinas e do TCC, ao lado do campo de link (que esse sim
+  // sincroniza entre aparelhos).
+  // ------------------------------------------------------------------
+  function fileAttachHtml(att, idPrefix) {
+    const U = window.Utils;
+    const has = att && att.fileName;
+    const hasLocalCopy = has && window.LocalFiles.get(att.localFileId);
+    return `
+      <div class="field span-2">
+        <label>Anexar arquivo pequeno (opcional — PDF ou imagem, fica salvo só neste aparelho)</label>
+        <div id="${idPrefix}-current" style="margin-bottom:8px; font-size:12.5px; ${has ? '' : 'display:none;'}">
+          📎 <span id="${idPrefix}-current-name">${has ? U.escapeHtml(att.fileName) + ' (' + Math.round((att.fileSize||0)/1024) + ' KB)' : ''}</span>
+          ${has && !hasLocalCopy ? ' <span class="text-faint">— disponível só no aparelho onde foi enviado</span>' : ''}
+          <button type="button" class="icon-btn" id="${idPrefix}-remove" style="margin-left:4px;"><i data-lucide="x"></i></button>
+        </div>
+        <input type="file" id="${idPrefix}-input" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" />
+        <div class="text-faint" style="font-size:11px; margin-top:4px;">Máx. ~400KB. Pra arquivos grandes (DWG, SketchUp, Lumion, etc.), use o campo de link e guarde no Drive/Dropbox.</div>
+      </div>
+    `;
+  }
+
+  // `item` é o objeto (arquivo, referência, etc.) que vai receber os
+  // campos localFileId/fileName/fileSize/mimeType diretamente.
+  function bindFileAttachInput(overlay, idPrefix, item) {
+    const U = window.Utils;
+    const removeBtn = overlay.querySelector(`#${idPrefix}-remove`);
+    if (removeBtn) removeBtn.addEventListener('click', () => {
+      if (item.localFileId) window.LocalFiles.remove(item.localFileId);
+      item.localFileId = null; item.fileName = null; item.fileSize = null; item.mimeType = null;
+      overlay.querySelector(`#${idPrefix}-current`).style.display = 'none';
+    });
+    const input = overlay.querySelector(`#${idPrefix}-input`);
+    if (!input) return;
+    input.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > window.LocalFiles.MAX_BYTES) {
+        toast('Arquivo muito grande (máx. ~400KB) — use o campo de link para arquivos maiores', 'error');
+        e.target.value = '';
+        return;
+      }
+      try {
+        const dataUrl = await window.LocalFiles.readFileAsDataUrl(file);
+        const id = U.uid('lf');
+        window.LocalFiles.save(id, dataUrl);
+        item.localFileId = id; item.fileName = file.name; item.fileSize = file.size; item.mimeType = file.type;
+        const cur = overlay.querySelector(`#${idPrefix}-current`);
+        cur.style.display = '';
+        cur.querySelector(`#${idPrefix}-current-name`).textContent = `${file.name} (${Math.round(file.size / 1024)} KB)`;
+        toast('Arquivo anexado (salvo neste aparelho)', 'success');
+      } catch (err) {
+        toast('Não foi possível ler o arquivo.', 'error');
+      }
+    });
+  }
+
+  // Botão "Abrir" pra um anexo local — só funciona no aparelho que tem a
+  // cópia (os outros aparelhos veem o nome do arquivo, mas não o conteúdo).
+  function openLocalFile(localFileId) {
+    const dataUrl = localFileId && window.LocalFiles.get(localFileId);
+    if (!dataUrl) { toast('Esse arquivo está disponível só no aparelho onde foi enviado.', 'error'); return; }
+    const win = window.open();
+    if (win) { win.document.write(`<iframe src="${dataUrl}" style="border:0;position:fixed;inset:0;width:100%;height:100%;"></iframe>`); }
+    else window.location.href = dataUrl;
+  }
+
   return {
     MAIN_TABS, TCC_ITEMS,
     openModal, closeModal, toast, confirmDialog, confirmWithPassword,
-    progressBar, emptyState,
+    progressBar, emptyState, fileAttachHtml, bindFileAttachInput, openLocalFile,
   };
 })();
 
@@ -2656,14 +2765,15 @@ window.Pages.disciplinas = (function () {
   }
 
   function renderArquivosTab(el, d) { renderSimpleListTab(el, d, 'arquivos', {
-    title: 'Arquivos', icon: 'folder', addLabel: 'Adicionar arquivo',
-    fields: [{ id: 'nome', label: 'Nome', type: 'text' }, { id: 'categoria', label: 'Categoria', type: 'text' }, { id: 'link', label: 'Link / caminho', type: 'text' }],
+    title: 'Arquivos', icon: 'folder', addLabel: 'Adicionar arquivo', fileAttach: true,
+    fields: [{ id: 'nome', label: 'Nome', type: 'text' }, { id: 'categoria', label: 'Categoria', type: 'text' }, { id: 'link', label: 'Link / caminho (opcional)', type: 'text' }],
     renderItem: (it) => `
       <div class="card file-card">
         <div class="file-icon"><i data-lucide="file"></i></div>
         <div style="flex:1;">
           <div class="file-name">${U.escapeHtml(it.nome)}</div>
           <div class="file-meta">${U.escapeHtml(it.categoria || 'Sem categoria')}</div>
+          ${it.fileName ? `<button type="button" class="btn btn-ghost btn-sm" data-open-local="${it.localFileId}" style="margin-top:6px; padding:3px 8px; font-size:11px;"><i data-lucide="paperclip" style="width:11px;height:11px;"></i> ${U.escapeHtml(it.fileName)}</button>` : ''}
         </div>
       </div>`
   }); }
@@ -2675,9 +2785,9 @@ window.Pages.disciplinas = (function () {
   }); }
 
   function renderBibliografiaTab(el, d) { renderSimpleListTab(el, d, 'bibliografia', {
-    title: 'Bibliografia', icon: 'library', addLabel: 'Adicionar referência',
+    title: 'Bibliografia', icon: 'library', addLabel: 'Adicionar referência', fileAttach: true,
     fields: [{ id: 'autor', label: 'Autor', type: 'text' }, { id: 'titulo', label: 'Título', type: 'text' }, { id: 'ano', label: 'Ano', type: 'text' }],
-    renderItem: (it) => `<div class="card"><div style="font-size:13px; font-weight:600;">${U.escapeHtml(it.titulo)}</div><div class="text-faint" style="font-size:12px; margin-top:4px;">${U.escapeHtml(it.autor)} ${it.ano ? '· ' + U.escapeHtml(it.ano) : ''}</div></div>`
+    renderItem: (it) => `<div class="card"><div style="font-size:13px; font-weight:600;">${U.escapeHtml(it.titulo)}</div><div class="text-faint" style="font-size:12px; margin-top:4px;">${U.escapeHtml(it.autor)} ${it.ano ? '· ' + U.escapeHtml(it.ano) : ''}</div>${it.fileName ? `<button type="button" class="btn btn-ghost btn-sm" data-open-local="${it.localFileId}" style="margin-top:6px; padding:3px 8px; font-size:11px;"><i data-lucide="paperclip" style="width:11px;height:11px;"></i> ${U.escapeHtml(it.fileName)}</button>` : ''}</div>`
   }); }
 
   function renderAnotacoesTab(el, d) {
@@ -2704,19 +2814,21 @@ window.Pages.disciplinas = (function () {
       ${items.length === 0 ? `<div class="card">${window.UI.emptyState(cfg.icon, 'Nada por aqui ainda', '')}</div>` :
       `<div class="grid grid-3">${items.map((it, idx) => `<div style="position:relative;">${cfg.renderItem(it)}<button class="icon-btn" data-del-item="${idx}" style="position:absolute; top:8px; right:8px; background:var(--bg-elevated);"><i data-lucide="x"></i></button></div>`).join('')}</div>`}
     `;
+    U.lucide();
     U.qs('#btn-add-item', el).addEventListener('click', () => {
+      const newItem = { id: U.uid('item') };
       window.UI.openModal({
         title: cfg.addLabel,
         bodyHtml: `<div class="form-grid single">${cfg.fields.map(f => `
           <div class="field"><label>${f.label}</label>${f.type === 'textarea' ? `<textarea id="f-${f.id}"></textarea>` : `<input id="f-${f.id}">`}</div>
-        `).join('')}</div>`,
+        `).join('')}${cfg.fileAttach ? window.UI.fileAttachHtml(null, 'sl-file') : ''}</div>`,
         footerHtml: `<button class="btn btn-ghost" id="f-cancel">Cancelar</button><button class="btn btn-primary" id="f-save">Adicionar</button>`,
         onMount: (overlay) => {
+          if (cfg.fileAttach) window.UI.bindFileAttachInput(overlay, 'sl-file', newItem);
           U.qs('#f-cancel', overlay).addEventListener('click', window.UI.closeModal);
           U.qs('#f-save', overlay).addEventListener('click', () => {
-            const item = { id: U.uid('item') };
-            cfg.fields.forEach(f => { item[f.id] = U.qs('#f-' + f.id, overlay).value; });
-            saveDisc(d, disc => { disc[key] = disc[key] || []; disc[key].push(item); });
+            cfg.fields.forEach(f => { newItem[f.id] = U.qs('#f-' + f.id, overlay).value; });
+            saveDisc(d, disc => { disc[key] = disc[key] || []; disc[key].push(newItem); });
             window.UI.closeModal();
             renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
           });
@@ -2725,8 +2837,14 @@ window.Pages.disciplinas = (function () {
     });
     U.qsa('[data-del-item]', el).forEach(b => b.addEventListener('click', () => {
       const idx = Number(b.getAttribute('data-del-item'));
+      const removed = (d[key] || [])[idx];
+      if (removed && removed.localFileId) window.LocalFiles.remove(removed.localFileId);
       saveDisc(d, disc => { disc[key].splice(idx, 1); });
       renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
+    }));
+    U.qsa('[data-open-local]', el).forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.UI.openLocalFile(b.getAttribute('data-open-local'));
     }));
   }
 
@@ -3923,7 +4041,7 @@ window.Pages.tcc = (function () {
                     <td>${U.escapeHtml(r.titulo)}</td>
                     <td class="mono">${U.escapeHtml(r.ano)}</td>
                     <td><span class="badge badge-muted">${U.escapeHtml(r.tipo)}</span></td>
-                    <td>${(r.tags||'').split(',').filter(Boolean).map(tg => `<span class="chip">${U.escapeHtml(tg.trim())}</span>`).join(' ')}</td>
+                    <td>${(r.tags||'').split(',').filter(Boolean).map(tg => `<span class="chip">${U.escapeHtml(tg.trim())}</span>`).join(' ')} ${r.fileName ? `<button type="button" class="icon-btn" data-open-local="${r.localFileId}" title="${U.escapeHtml(r.fileName)}"><i data-lucide="paperclip"></i></button>` : ''}</td>
                     <td><div class="row-actions">
                       <button class="icon-btn" data-edit-ref="${r.id}"><i data-lucide="pencil"></i></button>
                       <button class="icon-btn" data-del-ref="${r.id}"><i data-lucide="trash-2"></i></button>
@@ -3939,17 +4057,24 @@ window.Pages.tcc = (function () {
       U.qs('#f-search', container).addEventListener('input', U.debounce((e) => { referencias.search = e.target.value; referencias.render(container); }, 200));
       U.qs('#btn-add-ref', container).addEventListener('click', () => openRefForm(null, container));
       U.qsa('[data-edit-ref]', container).forEach(b => b.addEventListener('click', () => openRefForm(t.referencias.find(x => x.id === b.getAttribute('data-edit-ref')), container)));
-      U.qsa('[data-del-ref]', container).forEach(b => b.addEventListener('click', () => { saveTcc(tt => { tt.referencias = tt.referencias.filter(x => x.id !== b.getAttribute('data-del-ref')); }); referencias.render(container); }));
+      U.qsa('[data-del-ref]', container).forEach(b => b.addEventListener('click', () => {
+        const removed = t.referencias.find(x => x.id === b.getAttribute('data-del-ref'));
+        if (removed && removed.localFileId) window.LocalFiles.remove(removed.localFileId);
+        saveTcc(tt => { tt.referencias = tt.referencias.filter(x => x.id !== b.getAttribute('data-del-ref')); });
+        referencias.render(container);
+      }));
       U.qsa('[data-fav]', container).forEach(b => b.addEventListener('click', () => {
         saveTcc(tt => { const r = tt.referencias.find(x => x.id === b.getAttribute('data-fav')); r.favorito = !r.favorito; });
         referencias.render(container);
       }));
+      U.qsa('[data-open-local]', container).forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); window.UI.openLocalFile(b.getAttribute('data-open-local')); }));
     }
   };
 
   function openRefForm(ref, container) {
     const isEdit = !!ref;
     const r = ref || { id: null, autor: '', ano: '', titulo: '', tipo: 'Artigo', link: '', resumo: '', capitulo: '', tags: '', favorito: false };
+    const workingItem = { localFileId: r.localFileId, fileName: r.fileName, fileSize: r.fileSize, mimeType: r.mimeType };
     window.UI.openModal({
       title: isEdit ? 'Editar referência' : 'Nova referência',
       size: 'lg',
@@ -3965,16 +4090,19 @@ window.Pages.tcc = (function () {
           <div class="field span-2"><label>Resumo</label><textarea id="f-resumo">${U.escapeHtml(r.resumo)}</textarea></div>
           <div class="field"><label>Capítulo utilizado</label><input id="f-capitulo" value="${U.escapeHtml(r.capitulo)}"></div>
           <div class="field"><label>Tags (separadas por vírgula)</label><input id="f-tags" value="${U.escapeHtml(r.tags)}"></div>
+          ${window.UI.fileAttachHtml(isEdit ? r : null, 'ref-file')}
         </div>
       `,
       footerHtml: `<button class="btn btn-ghost" id="f-cancel">Cancelar</button><button class="btn btn-primary" id="f-save">Salvar</button>`,
       onMount: (overlay) => {
+        window.UI.bindFileAttachInput(overlay, 'ref-file', workingItem);
         U.qs('#f-cancel', overlay).addEventListener('click', window.UI.closeModal);
         U.qs('#f-save', overlay).addEventListener('click', () => {
           const payload = {
             autor: U.qs('#f-autor', overlay).value, ano: U.qs('#f-ano', overlay).value, titulo: U.qs('#f-titulo', overlay).value.trim(),
             tipo: U.qs('#f-tipo', overlay).value, link: U.qs('#f-link', overlay).value, resumo: U.qs('#f-resumo', overlay).value,
             capitulo: U.qs('#f-capitulo', overlay).value, tags: U.qs('#f-tags', overlay).value,
+            localFileId: workingItem.localFileId, fileName: workingItem.fileName, fileSize: workingItem.fileSize, mimeType: workingItem.mimeType,
           };
           if (!payload.titulo) { window.UI.toast('Informe o título', 'error'); return; }
           saveTcc(tt => {
@@ -4228,6 +4356,7 @@ window.Pages.tcc = (function () {
                 <div style="flex:1;">
                   <div class="file-name">${U.escapeHtml(a.nome)}</div>
                   <div class="file-meta">${U.escapeHtml(a.categoria)} ${a.data ? '· ' + U.formatDateBR(a.data) : ''}</div>
+                  ${a.fileName ? `<button type="button" class="btn btn-ghost btn-sm" data-open-local="${a.localFileId}" style="margin-top:6px; padding:3px 8px; font-size:11px;"><i data-lucide="paperclip" style="width:11px;height:11px;"></i> ${U.escapeHtml(a.fileName)}</button>` : ''}
                 </div>
                 <button class="icon-btn" data-del-file="${a.id}"><i data-lucide="x"></i></button>
               </div>
@@ -4238,6 +4367,7 @@ window.Pages.tcc = (function () {
       U.lucide();
       U.qsa('[data-cat]', container).forEach(b => b.addEventListener('click', () => { arquivos.filtro = b.getAttribute('data-cat'); arquivos.render(container); }));
       U.qs('#btn-add-file', container).addEventListener('click', () => {
+        const newItem = { id: U.uid('file') };
         window.UI.openModal({
           title: 'Adicionar arquivo',
           bodyHtml: `
@@ -4245,22 +4375,31 @@ window.Pages.tcc = (function () {
               <div class="field span-2"><label>Nome</label><input id="f-nome"></div>
               <div class="field span-2"><label>Categoria</label><select id="f-cat">${CATEGORIAS_ARQUIVO.map(c => `<option>${c}</option>`).join('')}</select></div>
               <div class="field span-2"><label>Link / caminho (opcional)</label><input id="f-link"></div>
+              ${window.UI.fileAttachHtml(null, 'tcc-file')}
             </div>
           `,
           footerHtml: `<button class="btn btn-ghost" id="f-cancel">Cancelar</button><button class="btn btn-primary" id="f-save">Adicionar</button>`,
           onMount: (overlay) => {
+            window.UI.bindFileAttachInput(overlay, 'tcc-file', newItem);
             U.qs('#f-cancel', overlay).addEventListener('click', window.UI.closeModal);
             U.qs('#f-save', overlay).addEventListener('click', () => {
               const nome = U.qs('#f-nome', overlay).value.trim();
               if (!nome) { window.UI.toast('Informe o nome do arquivo', 'error'); return; }
-              saveTcc(tt => { tt.arquivos.push({ id: U.uid('file'), nome, categoria: U.qs('#f-cat', overlay).value, link: U.qs('#f-link', overlay).value, data: U.todayISO() }); });
+              Object.assign(newItem, { nome, categoria: U.qs('#f-cat', overlay).value, link: U.qs('#f-link', overlay).value, data: U.todayISO() });
+              saveTcc(tt => { tt.arquivos.push(newItem); });
               window.UI.closeModal();
               arquivos.render(container);
             });
           }
         });
       });
-      U.qsa('[data-del-file]', container).forEach(b => b.addEventListener('click', () => { saveTcc(tt => { tt.arquivos = tt.arquivos.filter(x => x.id !== b.getAttribute('data-del-file')); }); arquivos.render(container); }));
+      U.qsa('[data-del-file]', container).forEach(b => b.addEventListener('click', () => {
+        const removed = t.arquivos.find(x => x.id === b.getAttribute('data-del-file'));
+        if (removed && removed.localFileId) window.LocalFiles.remove(removed.localFileId);
+        saveTcc(tt => { tt.arquivos = tt.arquivos.filter(x => x.id !== b.getAttribute('data-del-file')); });
+        arquivos.render(container);
+      }));
+      U.qsa('[data-open-local]', container).forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); window.UI.openLocalFile(b.getAttribute('data-open-local')); }));
     }
   };
 
