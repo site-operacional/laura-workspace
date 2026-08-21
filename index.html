@@ -885,11 +885,16 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
   height: var(--topbar-h); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 0 28px; border-bottom: 1px solid var(--border-soft); background: rgba(15,17,23,0.85); backdrop-filter: blur(8px);
 }
-.module-topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.module-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; white-space: nowrap; }
-.module-title svg { width: 18px; height: 18px; color: var(--mod-accent, var(--accent)); }
-.module-tabs { display: flex; gap: 4px; background: var(--card); padding: 4px; border-radius: 100px; border: 1px solid var(--border-soft); }
-.module-tab { background: none; border: none; padding: 7px 16px; border-radius: 100px; font-size: 12.5px; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: all .15s var(--ease); display: flex; align-items: center; gap: 6px; }
+.module-topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 1; }
+.module-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; min-width: 0; flex-shrink: 1; }
+.module-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.module-title svg { width: 18px; height: 18px; color: var(--mod-accent, var(--accent)); flex-shrink: 0; }
+.module-tabs {
+  display: flex; gap: 4px; background: var(--card); padding: 4px; border-radius: 100px; border: 1px solid var(--border-soft);
+  min-width: 0; flex-shrink: 1; overflow-x: auto; scrollbar-width: none;
+}
+.module-tabs::-webkit-scrollbar { display: none; }
+.module-tab { background: none; border: none; padding: 7px 16px; border-radius: 100px; font-size: 12.5px; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: all .15s var(--ease); display: flex; align-items: center; gap: 6px; flex-shrink: 0; white-space: nowrap; }
 .module-tab svg { width: 13px; height: 13px; }
 .module-tab.active { background: var(--mod-accent, var(--accent)); color: #fff; }
 .module-topbar-right { display: flex; gap: 8px; flex-shrink: 0; }
