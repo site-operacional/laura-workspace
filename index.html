@@ -4824,7 +4824,13 @@ window.Router = (function () {
   // Atualiza apenas o destaque da aba ativa na module-tabs (a barra é estática, criada uma vez em mountApp).
   function refreshTabs() {
     const key = activeTabKey(currentRoute);
-    U.qsa('.module-tab[data-key]').forEach(b => b.classList.toggle('active', b.getAttribute('data-key') === key));
+    let activeBtn = null;
+    U.qsa('.module-tab[data-key]').forEach(b => {
+      const isActive = b.getAttribute('data-key') === key;
+      b.classList.toggle('active', isActive);
+      if (isActive) activeBtn = b;
+    });
+    if (activeBtn) activeBtn.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }
 
   function renderCurrent() {
@@ -5063,6 +5069,22 @@ window.WorkspaceAuth = (function () {
 
   function isConfigured() {
     return !!(window.WS.get().auth);
+  }
+
+  function isDisabled() {
+    const a = window.WS.get().auth;
+    return !!(a && a.disabled);
+  }
+
+  // Desativa a exigência de senha, sem apagar a senha já cadastrada (fica
+  // guardada, pronta pra caso você reative depois). Reativar não exige
+  // nada especial — a próxima abertura volta a pedir a mesma senha de
+  // antes (ou pode trocar em Configurações).
+  function setDisabled(value) {
+    window.WS.save(s => {
+      if (!s.auth) s.auth = {};
+      s.auth.disabled = !!value;
+    });
   }
 
   async function setup(password) {
@@ -5472,6 +5494,11 @@ window.WorkspaceAuth = (function () {
   }
 
   function boot() {
+    if (isDisabled()) {
+      window.WorkspaceLock.markUnlocked();
+      window.Hub.render();
+      return;
+    }
     if (!isConfigured()) {
       showSetupScreen(() => {
         window.WorkspaceLock.markUnlocked();
@@ -5486,7 +5513,7 @@ window.WorkspaceAuth = (function () {
   }
 
   return {
-    isConfigured, setup, verify, changePassword, isLockedOut, lockoutRemaining,
+    isConfigured, isDisabled, setDisabled, setup, verify, changePassword, isLockedOut, lockoutRemaining,
     registerFail, registerSuccess, showSetupScreen, showLoginScreen, boot, togglePwVisibility,
     hasQuestions, getQuestionTexts, saveQuestions, verifyAnswers, hashAnswer, resetPasswordViaQuestions,
   };
@@ -5513,6 +5540,7 @@ window.WorkspaceLock = (function () {
 
   function checkAutoLock() {
     if (!unlocked || overlayShown) return;
+    if (window.WorkspaceAuth.isDisabled()) return;
     const minutes = (window.WS.get().security.autoLockMinutes);
     if (!minutes || minutes === 'never') return;
     const elapsedMin = (Date.now() - lastActivity) / 60000;
@@ -5521,6 +5549,7 @@ window.WorkspaceLock = (function () {
 
   function lockNow() {
     if (!unlocked || overlayShown) return;
+    if (window.WorkspaceAuth.isDisabled()) { window.UI.toast('A senha está desativada — ative-a em Configurações para poder bloquear.', 'default'); return; }
     overlayShown = true;
     markLocked();
     const overlay = window.Utils.el('<div class="lock-overlay" id="lock-overlay"></div>');
@@ -6512,6 +6541,17 @@ window.WorkspaceSettings = (function () {
       bodyHtml: `
         <div class="ws-settings-grid">
           <div class="ws-settings-section">
+            <h4>Exigir senha ao entrar</h4>
+            <p class="text-muted" style="font-size:12.5px; margin-bottom:12px;">
+              Desativando, a tela de entrada continua aparecendo normalmente, mas não vai mais pedir senha — qualquer pessoa que abrir o app entra direto. Sua senha atual fica guardada e você pode reativar quando quiser.
+            </p>
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+              <input type="checkbox" id="ws-toggle-pw" ${window.WorkspaceAuth.isDisabled() ? '' : 'checked'} style="width:18px; height:18px;">
+              <span style="font-size:13px; font-weight:600;">${window.WorkspaceAuth.isDisabled() ? 'Senha desativada' : 'Senha ativada'}</span>
+            </label>
+          </div>
+
+          <div class="ws-settings-section">
             <h4>Alterar senha</h4>
             <div class="field" style="margin-bottom:10px;">
               <label>Senha atual</label>
@@ -6591,6 +6631,26 @@ window.WorkspaceSettings = (function () {
       onMount: (overlay) => {
         const s = window.WS.get();
         overlay.querySelector('#autolock-select').value = String(s.security.autoLockMinutes);
+
+        const pwToggle = overlay.querySelector('#ws-toggle-pw');
+        pwToggle.addEventListener('change', () => {
+          const wantEnabled = pwToggle.checked;
+          if (wantEnabled) {
+            window.WorkspaceAuth.setDisabled(false);
+            window.UI.toast('Senha reativada — vai ser pedida na próxima entrada.', 'success');
+            pwToggle.nextElementSibling.textContent = 'Senha ativada';
+          } else {
+            // Confirma com a senha atual antes de desativar, pra evitar
+            // desativar sem querer.
+            pwToggle.checked = true; // reverte visualmente até confirmar
+            window.UI.confirmWithPassword('Isso vai desativar a exigência de senha ao entrar no Workspace. Deseja continuar?', () => {
+              window.WorkspaceAuth.setDisabled(true);
+              pwToggle.checked = false;
+              pwToggle.nextElementSibling.textContent = 'Senha desativada';
+              window.UI.toast('Senha desativada — a entrada não vai mais pedir nada.', 'default');
+            });
+          }
+        });
 
         overlay.querySelector('#btn-export-all').addEventListener('click', () => {
           window.WorkspaceBackup.exportAll();
@@ -7066,7 +7126,13 @@ window.ModuleShell = (function () {
     if (!mergedTabs.find(t => t.key === currentTab)) currentTab = (mergedTabs[0] && mergedTabs[0].key) || currentTab;
 
     function renderTab() {
-      U.qsa('.module-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === currentTab));
+      let activeBtn = null;
+      U.qsa('.module-tab').forEach(b => {
+        const isActive = b.getAttribute('data-tab') === currentTab;
+        b.classList.toggle('active', isActive);
+        if (isActive) activeBtn = b;
+      });
+      if (activeBtn) activeBtn.scrollIntoView({ inline: 'nearest', block: 'nearest' });
       const scroller = document.getElementById('module-scroll');
       const content = document.getElementById('module-content');
       if (scroller) scroller.scrollTop = 0;
