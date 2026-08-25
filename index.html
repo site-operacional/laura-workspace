@@ -274,7 +274,7 @@ button { font-family: inherit; }
 .badge-success { background: rgba(34,197,94,.15); color: var(--success); }
 .badge-danger { background: rgba(239,68,68,.15); color: var(--danger); }
 .badge-warning { background: rgba(234,179,8,.15); color: var(--warning); }
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot { width: 8px; height: 8px; min-width: 8px; min-height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 auto; align-self: center; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-elevated); border: 1px solid var(--border); padding: 3px 10px; border-radius: 100px; font-size: 11.5px; color: var(--text-muted); }
 
 /* ============================== PROGRESS ============================== */
@@ -439,7 +439,7 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
   display: flex; align-items: center; gap: 9px;
 }
 .gantt-row.alt .gantt-row-label { background: var(--row-alt-label-bg); }
-.gantt-row-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.gantt-row-dot { width: 8px; height: 8px; min-width: 8px; min-height: 8px; border-radius: 50%; flex: 0 0 auto; align-self: center; }
 .gantt-row-text { overflow: hidden; text-overflow: ellipsis; }
 .gantt-track { flex: 1; position: relative; height: 100%; }
 .gantt-bar {
@@ -469,13 +469,16 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 .timeline { display: flex; flex-direction: column; }
 .timeline-item { display: flex; gap: 14px; padding-bottom: 20px; position: relative; }
 .timeline-item:not(:last-child)::before { content:''; position: absolute; left: 5px; top: 16px; bottom: 0; width: 1px; background: var(--border); }
-.timeline-dot { width: 11px; height: 11px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; border: 2px solid var(--bg-elevated); box-shadow: 0 0 0 1px var(--border); }
+.timeline-dot { width: 11px; height: 11px; min-width: 11px; min-height: 11px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; align-self: flex-start; border: 2px solid var(--bg-elevated); box-shadow: 0 0 0 1px var(--border); box-sizing: content-box; }
 .timeline-content { flex: 1; }
 .timeline-content .t-title { font-size: 13px; font-weight: 600; }
 .timeline-content .t-meta { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; }
 
 /* ============================== CHECKLIST ============================== */
 .checklist-item { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 13px; }
+.chk-mini { width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; }
+.chk-mini svg { width: 13px; height: 13px; }
+.chk-mini:disabled { opacity: .25; cursor: default; }
 .checklist-item input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
 .checklist-item.done span { text-decoration: line-through; color: var(--text-faint); }
 .checklist-add { display: flex; gap: 8px; margin-top: 10px; }
@@ -943,7 +946,7 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 /* ---------- Financeiro: navegador de mês, cartões e fatura ---------- */
 .month-nav { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border-soft); border-radius: 100px; padding: 4px 6px; }
 .month-nav-label { font-size: 13px; font-weight: 700; min-width: 128px; text-align: center; text-transform: capitalize; }
-.card-color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.card-color-dot { width: 10px; height: 10px; min-width: 10px; min-height: 10px; border-radius: 50%; flex: 0 0 auto; align-self: center; display: inline-block; }
 .card-bandeira-badge { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: var(--card); border: 1px solid var(--border-soft); color: var(--text-faint); }
 .color-swatch-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .color-swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; flex-shrink: 0; transition: transform .12s var(--ease); }
@@ -2030,10 +2033,76 @@ window.UI = (function () {
     else window.location.href = dataUrl;
   }
 
+  // ------------------------------------------------------------------
+  // Editor de checklist compartilhado: cada item tem {id, texto, done}.
+  // Suporta marcar feito, EDITAR o texto (clique no texto) e REORDENAR
+  // (setas pra cima/baixo). `list` é mutado in-place; chame render()+bind()
+  // de novo após qualquer mudança pra atualizar a tela.
+  // ------------------------------------------------------------------
+  function checklistEditorHtml(list) {
+    const U = window.Utils;
+    if (!list.length) return `<div class="text-faint" style="font-size:12px; padding:6px 0;">Nenhum item ainda.</div>`;
+    return list.map((c, i) => `
+      <div class="checklist-item ${c.done ? 'done' : ''}" data-chk-row="${c.id}">
+        <input type="checkbox" data-chk-toggle="${c.id}" ${c.done ? 'checked' : ''}>
+        <span class="chk-text" data-chk-text="${c.id}" style="flex:1; cursor:text;">${U.escapeHtml(c.texto)}</span>
+        <div style="display:flex; gap:2px; flex-shrink:0;">
+          <button type="button" class="icon-btn chk-mini" data-chk-up="${c.id}" ${i === 0 ? 'disabled' : ''} title="Mover pra cima"><i data-lucide="chevron-up"></i></button>
+          <button type="button" class="icon-btn chk-mini" data-chk-down="${c.id}" ${i === list.length - 1 ? 'disabled' : ''} title="Mover pra baixo"><i data-lucide="chevron-down"></i></button>
+          <button type="button" class="icon-btn chk-mini" data-chk-edit="${c.id}" title="Editar"><i data-lucide="pencil"></i></button>
+          <button type="button" class="icon-btn chk-mini" data-chk-del="${c.id}" title="Remover"><i data-lucide="x"></i></button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function bindChecklistEditor(container, list, onChange) {
+    const U = window.Utils;
+    U.lucide();
+    container.querySelectorAll('[data-chk-toggle]').forEach(cb => cb.addEventListener('change', () => {
+      list.find(c => c.id === cb.getAttribute('data-chk-toggle')).done = cb.checked;
+      onChange();
+    }));
+    container.querySelectorAll('[data-chk-up]').forEach(b => b.addEventListener('click', () => {
+      const idx = list.findIndex(c => c.id === b.getAttribute('data-chk-up'));
+      if (idx > 0) { const [it] = list.splice(idx, 1); list.splice(idx - 1, 0, it); onChange(); }
+    }));
+    container.querySelectorAll('[data-chk-down]').forEach(b => b.addEventListener('click', () => {
+      const idx = list.findIndex(c => c.id === b.getAttribute('data-chk-down'));
+      if (idx < list.length - 1) { const [it] = list.splice(idx, 1); list.splice(idx + 1, 0, it); onChange(); }
+    }));
+    container.querySelectorAll('[data-chk-edit]').forEach(b => b.addEventListener('click', () => {
+      const item = list.find(c => c.id === b.getAttribute('data-chk-edit'));
+      const span = container.querySelector(`[data-chk-text="${item.id}"]`);
+      if (!span || span.tagName === 'INPUT') return;
+      const input = document.createElement('input');
+      input.value = item.texto;
+      input.style.cssText = 'flex:1; font-size:13px; padding:2px 6px;';
+      span.replaceWith(input);
+      input.focus();
+      input.select();
+      let committed = false;
+      function commit() {
+        if (committed) return;
+        committed = true;
+        item.texto = input.value.trim() || item.texto;
+        onChange();
+      }
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+    }));
+    container.querySelectorAll('[data-chk-del]').forEach(b => b.addEventListener('click', () => {
+      const idx = list.findIndex(c => c.id === b.getAttribute('data-chk-del'));
+      list.splice(idx, 1);
+      onChange();
+    }));
+  }
+
   return {
     MAIN_TABS, TCC_ITEMS,
     openModal, closeModal, toast, confirmDialog, confirmWithPassword,
     progressBar, emptyState, fileAttachHtml, bindFileAttachInput, openLocalFile,
+    checklistEditorHtml, bindChecklistEditor,
   };
 })();
 
@@ -2817,34 +2886,75 @@ window.Pages.disciplinas = (function () {
         <button class="btn btn-primary btn-sm" id="btn-add-item"><i data-lucide="plus"></i> ${cfg.addLabel}</button>
       </div>
       ${items.length === 0 ? `<div class="card">${window.UI.emptyState(cfg.icon, 'Nada por aqui ainda', '')}</div>` :
-      `<div class="grid grid-3">${items.map((it, idx) => `<div style="position:relative;">${cfg.renderItem(it)}<button class="icon-btn" data-del-item="${idx}" style="position:absolute; top:8px; right:8px; background:var(--bg-elevated);"><i data-lucide="x"></i></button></div>`).join('')}</div>`}
+      `<div class="grid grid-3">${items.map((it, idx) => `
+        <div style="position:relative;">
+          ${cfg.renderItem(it)}
+          <div style="position:absolute; top:8px; right:8px; display:flex; gap:2px;">
+            <button class="icon-btn" data-move-up-item="${idx}" ${idx === 0 ? 'disabled' : ''} style="background:var(--bg-elevated);" title="Mover pra cima"><i data-lucide="chevron-up"></i></button>
+            <button class="icon-btn" data-move-down-item="${idx}" ${idx === items.length - 1 ? 'disabled' : ''} style="background:var(--bg-elevated);" title="Mover pra baixo"><i data-lucide="chevron-down"></i></button>
+            <button class="icon-btn" data-edit-item="${idx}" style="background:var(--bg-elevated);" title="Editar"><i data-lucide="pencil"></i></button>
+            <button class="icon-btn" data-del-item="${idx}" style="background:var(--bg-elevated);" title="Remover"><i data-lucide="x"></i></button>
+          </div>
+        </div>
+      `).join('')}</div>`}
     `;
     U.lucide();
-    U.qs('#btn-add-item', el).addEventListener('click', () => {
-      const newItem = { id: U.uid('item') };
+
+    function openForm(existingItem, idx) {
+      const isEdit = existingItem != null;
+      const item = isEdit ? Object.assign({}, existingItem) : { id: U.uid('item') };
       window.UI.openModal({
-        title: cfg.addLabel,
+        title: isEdit ? 'Editar item' : cfg.addLabel,
         bodyHtml: `<div class="form-grid single">${cfg.fields.map(f => `
-          <div class="field"><label>${f.label}</label>${f.type === 'textarea' ? `<textarea id="f-${f.id}"></textarea>` : `<input id="f-${f.id}">`}</div>
-        `).join('')}${cfg.fileAttach ? window.UI.fileAttachHtml(null, 'sl-file') : ''}</div>`,
-        footerHtml: `<button class="btn btn-ghost" id="f-cancel">Cancelar</button><button class="btn btn-primary" id="f-save">Adicionar</button>`,
+          <div class="field"><label>${f.label}</label>${f.type === 'textarea' ? `<textarea id="f-${f.id}">${U.escapeHtml(item[f.id] || '')}</textarea>` : `<input id="f-${f.id}" value="${U.escapeHtml(item[f.id] || '')}">`}</div>
+        `).join('')}${cfg.fileAttach ? window.UI.fileAttachHtml(isEdit ? item : null, 'sl-file') : ''}</div>`,
+        footerHtml: `
+          ${isEdit ? '<button class="btn btn-danger" id="f-delete" style="margin-right:auto;"><i data-lucide="trash-2"></i> Remover</button>' : ''}
+          <button class="btn btn-ghost" id="f-cancel">Cancelar</button><button class="btn btn-primary" id="f-save">${isEdit ? 'Salvar' : 'Adicionar'}</button>
+        `,
         onMount: (overlay) => {
-          if (cfg.fileAttach) window.UI.bindFileAttachInput(overlay, 'sl-file', newItem);
+          if (cfg.fileAttach) window.UI.bindFileAttachInput(overlay, 'sl-file', item);
           U.qs('#f-cancel', overlay).addEventListener('click', window.UI.closeModal);
+          if (isEdit) U.qs('#f-delete', overlay).addEventListener('click', () => {
+            if (item.localFileId) window.LocalFiles.remove(item.localFileId);
+            saveDisc(d, disc => { disc[key].splice(idx, 1); });
+            window.UI.closeModal();
+            renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
+          });
           U.qs('#f-save', overlay).addEventListener('click', () => {
-            cfg.fields.forEach(f => { newItem[f.id] = U.qs('#f-' + f.id, overlay).value; });
-            saveDisc(d, disc => { disc[key] = disc[key] || []; disc[key].push(newItem); });
+            cfg.fields.forEach(f => { item[f.id] = U.qs('#f-' + f.id, overlay).value; });
+            saveDisc(d, disc => {
+              disc[key] = disc[key] || [];
+              if (isEdit) Object.assign(disc[key][idx], item);
+              else disc[key].push(item);
+            });
             window.UI.closeModal();
             renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
           });
         }
       });
-    });
+    }
+
+    U.qs('#btn-add-item', el).addEventListener('click', () => openForm(null, -1));
+    U.qsa('[data-edit-item]', el).forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.getAttribute('data-edit-item'));
+      openForm((d[key] || [])[idx], idx);
+    }));
     U.qsa('[data-del-item]', el).forEach(b => b.addEventListener('click', () => {
       const idx = Number(b.getAttribute('data-del-item'));
       const removed = (d[key] || [])[idx];
       if (removed && removed.localFileId) window.LocalFiles.remove(removed.localFileId);
       saveDisc(d, disc => { disc[key].splice(idx, 1); });
+      renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
+    }));
+    U.qsa('[data-move-up-item]', el).forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.getAttribute('data-move-up-item'));
+      saveDisc(d, disc => { if (idx > 0) { const [it] = disc[key].splice(idx, 1); disc[key].splice(idx - 1, 0, it); } });
+      renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
+    }));
+    U.qsa('[data-move-down-item]', el).forEach(b => b.addEventListener('click', () => {
+      const idx = Number(b.getAttribute('data-move-down-item'));
+      saveDisc(d, disc => { if (idx < disc[key].length - 1) { const [it] = disc[key].splice(idx, 1); disc[key].splice(idx + 1, 0, it); } });
       renderTab(el, window.DB.get().disciplinas.find(x => x.id === d.id));
     }));
     U.qsa('[data-open-local]', el).forEach(b => b.addEventListener('click', (e) => {
@@ -3048,7 +3158,7 @@ window.Pages.tarefas = (function () {
           <div class="field span-2"><label>Observações</label><textarea id="f-obs">${U.escapeHtml(t.observacoes)}</textarea></div>
           <div class="field span-2">
             <label>Checklist</label>
-            <div id="checklist-box">${renderChecklistEditor(t.checklist || [])}</div>
+            <div id="checklist-box">${window.UI.checklistEditorHtml(t.checklist || [])}</div>
             <div class="checklist-add"><input id="f-check-new" placeholder="Novo item..."><button class="btn btn-soft btn-sm" id="btn-add-check">Adicionar</button></div>
           </div>
         </div>
@@ -3062,16 +3172,9 @@ window.Pages.tarefas = (function () {
         let checklist = JSON.parse(JSON.stringify(t.checklist || []));
 
         function refreshChecklist() {
-          U.qs('#checklist-box', overlay).innerHTML = renderChecklistEditor(checklist);
-          U.lucide();
-          U.qsa('[data-check-toggle]', overlay).forEach(cb => cb.addEventListener('change', () => {
-            checklist.find(c => c.id === cb.getAttribute('data-check-toggle')).done = cb.checked;
-            refreshChecklist();
-          }));
-          U.qsa('[data-check-del]', overlay).forEach(b => b.addEventListener('click', () => {
-            checklist = checklist.filter(c => c.id !== b.getAttribute('data-check-del'));
-            refreshChecklist();
-          }));
+          const box = U.qs('#checklist-box', overlay);
+          box.innerHTML = window.UI.checklistEditorHtml(checklist);
+          window.UI.bindChecklistEditor(box, checklist, refreshChecklist);
         }
         refreshChecklist();
 
@@ -3117,17 +3220,6 @@ window.Pages.tarefas = (function () {
         });
       }
     });
-  }
-
-  function renderChecklistEditor(checklist) {
-    if (!checklist.length) return `<div class="text-faint" style="font-size:12px; padding:6px 0;">Nenhum item ainda.</div>`;
-    return checklist.map(c => `
-      <div class="checklist-item ${c.done ? 'done' : ''}">
-        <input type="checkbox" data-check-toggle="${c.id}" ${c.done ? 'checked' : ''}>
-        <span>${U.escapeHtml(c.texto)}</span>
-        <button class="icon-btn" data-check-del="${c.id}" style="margin-left:auto;"><i data-lucide="x"></i></button>
-      </div>
-    `).join('');
   }
 
   return { render, openTaskForm };
@@ -3801,6 +3893,8 @@ window.Pages.tcc = (function () {
                 ${e.descricao ? `<p class="text-muted" style="font-size:12.5px; margin-top:8px;">${U.escapeHtml(e.descricao)}</p>` : ''}
               </div>
               <div class="row-actions" style="opacity:1;">
+                <button class="icon-btn" data-move-up="${e.id}" ${idx === 0 ? 'disabled' : ''} title="Mover pra cima"><i data-lucide="chevron-up"></i></button>
+                <button class="icon-btn" data-move-down="${e.id}" ${idx === t.etapas.length - 1 ? 'disabled' : ''} title="Mover pra baixo"><i data-lucide="chevron-down"></i></button>
                 <button class="icon-btn" data-dup="${e.id}" title="Duplicar"><i data-lucide="copy"></i></button>
                 <button class="icon-btn" data-edit="${e.id}" title="Editar"><i data-lucide="pencil"></i></button>
                 <button class="icon-btn" data-del="${e.id}" title="Remover"><i data-lucide="trash-2"></i></button>
@@ -3822,6 +3916,20 @@ window.Pages.tcc = (function () {
         }).join('');
 
         U.qsa('[data-edit]', el).forEach(b => b.addEventListener('click', () => openEtapaForm(t.etapas.find(x => x.id === b.getAttribute('data-edit')), () => etapas.render(container))));
+        U.qsa('[data-move-up]', el).forEach(b => b.addEventListener('click', () => {
+          saveTcc(tt => {
+            const idx = tt.etapas.findIndex(x => x.id === b.getAttribute('data-move-up'));
+            if (idx > 0) { const [it] = tt.etapas.splice(idx, 1); tt.etapas.splice(idx - 1, 0, it); }
+          });
+          etapas.render(container);
+        }));
+        U.qsa('[data-move-down]', el).forEach(b => b.addEventListener('click', () => {
+          saveTcc(tt => {
+            const idx = tt.etapas.findIndex(x => x.id === b.getAttribute('data-move-down'));
+            if (idx < tt.etapas.length - 1) { const [it] = tt.etapas.splice(idx, 1); tt.etapas.splice(idx + 1, 0, it); }
+          });
+          etapas.render(container);
+        }));
         U.qsa('[data-del]', el).forEach(b => b.addEventListener('click', () => {
           window.UI.confirmDialog('Remover esta etapa?', () => {
             saveTcc(tt => { tt.etapas = tt.etapas.filter(x => x.id !== b.getAttribute('data-del')); });
@@ -3902,14 +4010,8 @@ window.Pages.tcc = (function () {
         let checklist = JSON.parse(JSON.stringify(e.checklist || []));
         function refresh() {
           const box = U.qs('#checklist-box', overlay);
-          box.innerHTML = checklist.length ? checklist.map(c => `
-            <div class="checklist-item ${c.done ? 'done' : ''}">
-              <input type="checkbox" data-t="${c.id}" ${c.done ? 'checked' : ''}><span>${U.escapeHtml(c.texto)}</span>
-              <button class="icon-btn" data-d="${c.id}" style="margin-left:auto;"><i data-lucide="x"></i></button>
-            </div>`).join('') : '<div class="text-faint" style="font-size:12px;">Nenhum item ainda.</div>';
-          U.lucide();
-          U.qsa('[data-t]', box).forEach(cb => cb.addEventListener('change', () => { checklist.find(c => c.id === cb.getAttribute('data-t')).done = cb.checked; refresh(); }));
-          U.qsa('[data-d]', box).forEach(b => b.addEventListener('click', () => { checklist = checklist.filter(c => c.id !== b.getAttribute('data-d')); refresh(); }));
+          box.innerHTML = window.UI.checklistEditorHtml(checklist);
+          window.UI.bindChecklistEditor(box, checklist, refresh);
         }
         refresh();
         U.qs('#btn-add-check', overlay).addEventListener('click', () => {
@@ -5687,7 +5789,6 @@ window.Hub = (function () {
     { id: 'dashboard-geral', label: 'Dashboard Geral', icon: 'layout-dashboard', c1: '#5B0E2A', c2: '#C0223F', ready: true },
     { id: 'faculdade', label: 'Faculdade', icon: 'graduation-cap', c1: '#7F1D1D', c2: '#EF4444', ready: true, template: 'estudos' },
     { id: 'igreja', label: 'Igreja', icon: 'church', c1: '#14532D', c2: '#22C55E', ready: true, template: 'igreja' },
-    { id: 'eventos', label: 'Eventos', icon: 'party-popper', c1: '#4C1D95', c2: '#A855F7', ready: true, template: 'eventos' },
     { id: 'financeiro', label: 'Financeiro', icon: 'wallet', c1: '#7C2D12', c2: '#F97316', ready: true, template: 'financeiro' },
     { id: 'pessoal', label: 'Pessoal', icon: 'user', c1: '#1E3A8A', c2: '#3B82F6', ready: true, template: 'pessoal' },
   ];
@@ -6234,33 +6335,34 @@ window.DashboardGeral = (function () {
 
     state.tarefas.forEach(t => {
       if (!t.prazo) return;
-      items.push({ date: t.prazo, label: t.titulo, kind: 'Entrega', source: 'Faculdade', color: '#EF4444' });
+      const disc = t.disciplinaId ? state.disciplinas.find(x => x.id === t.disciplinaId) : null;
+      items.push({
+        id: 'tarefa:' + t.id, date: t.prazo, label: t.titulo, kind: 'Entrega',
+        source: disc ? disc.nome : 'Faculdade', color: disc ? (disc.cor || '#EF4444') : '#EF4444',
+        moduleKey: 'tarefa', itemId: t.id,
+      });
     });
     state.eventos.forEach(e => {
       if (!e.data) return;
-      items.push({ date: e.data, label: e.titulo, kind: 'Evento', source: 'Faculdade', color: e.cor || '#EF4444' });
+      items.push({ id: 'fevento:' + e.id, date: e.data, label: e.titulo, kind: 'Evento', source: 'Faculdade', color: e.cor || '#EF4444', moduleKey: null, itemId: e.id });
     });
-    (state.tcc.etapas || []).forEach(e => {
-      if (!e.dataFim) return;
-      items.push({ date: e.dataFim, label: 'TCC · ' + e.nome, kind: 'TCC', source: 'Faculdade', color: '#C084FC' });
-    });
-    state.disciplinas.forEach(d => {
-      (d.atividades || []).forEach(a => {
-        if (!a.prazo) return;
-        items.push({ date: a.prazo, label: a.titulo, kind: 'Prova/Atividade', source: d.nome, color: d.cor || '#EF4444' });
-      });
-    });
+    // As etapas do TCC (Cronograma) ficam de fora de propósito — o
+    // cronograma é uma visão de planejamento interna do TCC, não um
+    // compromisso do dia a dia, e poluiria o calendário geral.
+    // Observação: atividades de disciplina já são tarefas (state.tarefas)
+    // vinculadas via disciplinaId — cobertas no loop acima, coloridas com
+    // a cor da disciplina em vez do vermelho genérico.
 
     if (window.IgrejaDB) {
       window.IgrejaDB.load();
       const ig = window.IgrejaDB.get();
       (ig.escalas || []).forEach(e => {
         if (!e.data) return;
-        items.push({ date: e.data, label: `Escala · ${e.culto || 'Culto'}${e.funcao ? ' (' + e.funcao + ')' : ''}`, kind: 'Escala', source: 'Igreja', color: '#22C55E' });
+        items.push({ id: 'iescala:' + e.id, date: e.data, label: `Escala · ${e.culto || 'Culto'}${e.funcao ? ' (' + e.funcao + ')' : ''}`, kind: 'Escala', source: 'Igreja', color: '#22C55E', moduleKey: 'igreja', itemId: e.id, jumpRoute: 'igreja' });
       });
       (ig.eventos || []).forEach(e => {
         if (!e.data) return;
-        items.push({ date: e.data, label: e.nome, kind: 'Evento · Igreja', source: 'Igreja', color: '#22C55E' });
+        items.push({ id: 'ievento:' + e.id, date: e.data, label: e.nome, kind: 'Evento · Igreja', source: 'Igreja', color: '#22C55E', moduleKey: 'igreja', itemId: e.id, jumpRoute: 'igreja' });
       });
     }
 
@@ -6270,7 +6372,7 @@ window.DashboardGeral = (function () {
       (evState.eventos || []).forEach(e => {
         if (!e.data) return;
         const cat = evState.categorias.find(c => c.id === e.categoriaId);
-        items.push({ date: e.data, label: e.nome, kind: 'Evento · ' + (cat ? cat.nome : 'Pessoal'), source: 'Eventos', color: (cat && cat.cor) || '#A855F7' });
+        items.push({ id: 'pevento:' + e.id, date: e.data, label: e.nome, kind: 'Evento · ' + (cat ? cat.nome : 'Pessoal'), source: 'Eventos', color: (cat && cat.cor) || '#A855F7', moduleKey: 'eventoPessoal', itemId: e.id });
       });
     }
 
@@ -6284,11 +6386,11 @@ window.DashboardGeral = (function () {
         let mes = d.getMonth(), ano = d.getFullYear();
         if (Number(c.diaVencimento) < hojeDia) { mes += 1; if (mes > 11) { mes = 0; ano += 1; } }
         const iso = `${ano}-${String(mes + 1).padStart(2, '0')}-${String(Math.min(Number(c.diaVencimento), 28)).padStart(2, '0')}`;
-        items.push({ date: iso, label: `Conta · ${c.nome}`, kind: 'Financeiro', source: 'Financeiro', color: '#F97316' });
+        items.push({ id: 'fconta:' + c.id, date: iso, label: `Conta · ${c.nome}`, kind: 'Financeiro', source: 'Financeiro', color: '#F97316', moduleKey: 'financeiro', itemId: c.id, jumpRoute: 'financeiro' });
       });
       finState.assinaturas.filter(a => a.status === 'ativa').forEach(a => {
         const prx = window.FinanceiroApp && window.FinanceiroApp.proximaCobrancaDe ? window.FinanceiroApp.proximaCobrancaDe(a) : null;
-        if (prx) items.push({ date: prx, label: `Assinatura · ${a.nome}`, kind: 'Financeiro', source: 'Financeiro', color: '#F97316' });
+        if (prx) items.push({ id: 'fassin:' + a.id, date: prx, label: `Assinatura · ${a.nome}`, kind: 'Financeiro', source: 'Financeiro', color: '#F97316', moduleKey: 'financeiro', itemId: a.id, jumpRoute: 'financeiro' });
       });
     }
 
@@ -6296,7 +6398,7 @@ window.DashboardGeral = (function () {
       window.PessoalDB.load();
       (window.PessoalDB.get().objetivos || []).forEach(o => {
         if (!o.dataAlvo || o.feito) return;
-        items.push({ date: o.dataAlvo, label: `Objetivo · ${o.titulo}`, kind: 'Pessoal', source: 'Pessoal', color: '#3B82F6' });
+        items.push({ id: 'pobj:' + o.id, date: o.dataAlvo, label: `Objetivo · ${o.titulo}`, kind: 'Pessoal', source: 'Pessoal', color: '#3B82F6', moduleKey: 'pessoal', itemId: o.id, jumpRoute: 'pessoal' });
       });
     }
 
@@ -6317,6 +6419,36 @@ window.DashboardGeral = (function () {
     const today = U.todayISO();
     const list = (window.EventosDB.get().eventos || []).filter(e => e.data && e.data >= today).sort((a, b) => a.data.localeCompare(b.data));
     return list[0] || null;
+  }
+
+  // Roteia a edição de um item pro lugar certo: tarefas e eventos pessoais
+  // editam direto aqui (inline); os demais módulos (Igreja, Financeiro,
+  // Pessoal) ainda não têm formulário de edição embutido no Dashboard
+  // Geral, então navega direto pra tela de origem, já pronta pra editar.
+  function editOrJump(item) {
+    if (item.moduleKey === 'tarefa') {
+      const task = window.DB.get().tarefas.find(t => t.id === item.itemId);
+      if (!task) { window.UI.toast('Essa tarefa não existe mais.', 'error'); return; }
+      window.Pages.tarefas.openTaskForm(task, null, () => render());
+      return;
+    }
+    if (item.moduleKey === 'eventoPessoal') {
+      const ev = window.EventosDB.get().eventos.find(e => e.id === item.itemId);
+      if (!ev) { window.UI.toast('Esse evento não existe mais.', 'error'); return; }
+      window.EventosApp.openEventoForm(ev, null, () => render());
+      return;
+    }
+    if (item.jumpRoute) {
+      window.UI.toast(`Abrindo em ${item.source}…`, 'default');
+      window.location.hash = '#' + item.jumpRoute;
+      return;
+    }
+    window.UI.toast('Esse item ainda não pode ser editado por aqui.', 'default');
+  }
+
+  function novoEvento(presetDate) {
+    const draft = presetDate ? { id: null, nome: '', categoriaId: null, data: presetDate, horario: '', local: '', descricao: '', checklist: [], anexos: [], observacoes: '' } : null;
+    window.EventosApp.openEventoForm(draft, null, () => render());
   }
 
   function nextVencimento() {
@@ -6368,6 +6500,7 @@ window.DashboardGeral = (function () {
             <button class="btn btn-ghost btn-icon" id="dg-cal-prev"><i data-lucide="chevron-left"></i></button>
             <button class="btn btn-soft btn-sm" id="dg-cal-today">Hoje</button>
             <button class="btn btn-ghost btn-icon" id="dg-cal-next"><i data-lucide="chevron-right"></i></button>
+            <button class="btn btn-primary btn-sm" id="dg-btn-novo"><i data-lucide="plus"></i> Novo evento</button>
           </div>
         </div>
         <div class="subtitle" style="margin:-8px 0 12px;">${U.MESES[refDate.getMonth()]} de ${refDate.getFullYear()} · reúne Faculdade, Igreja, Eventos, Financeiro e Pessoal</div>
@@ -6408,24 +6541,28 @@ window.DashboardGeral = (function () {
     content.querySelector('#dg-cal-prev').addEventListener('click', () => { refDate = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1); renderContent(content); });
     content.querySelector('#dg-cal-next').addEventListener('click', () => { refDate = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 1); renderContent(content); });
     content.querySelector('#dg-cal-today').addEventListener('click', () => { refDate = new Date(); renderContent(content); });
+    content.querySelector('#dg-btn-novo').addEventListener('click', novoEvento);
     U.qsa('[data-dg-day]', content).forEach(dayEl => {
       dayEl.addEventListener('click', () => openDgDayModal(dayEl.getAttribute('data-dg-day'), items));
     });
 
     function listHtml(list, emptyMsg) {
       if (!list.length) return window.UI.emptyState('calendar', emptyMsg, '');
-      return `<div class="timeline">` + list.map(i => `
-        <div class="timeline-item">
+      return `<div class="timeline">` + list.map((i, idx) => `
+        <div class="timeline-item" data-dg-item="${idx}" style="cursor:pointer;">
           <div class="timeline-dot" style="background:${i.color};"></div>
           <div class="timeline-content">
             <div class="t-title">${U.escapeHtml(i.label)}</div>
             <div class="t-meta">${U.formatDateBR(i.date)} · ${i.kind} · <span class="dg-source-tag" style="background:${i.color};">${U.escapeHtml(i.source)}</span></div>
           </div>
+          <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--text-faint); flex-shrink:0; align-self:center;"></i>
         </div>
       `).join('') + `</div>`;
     }
     content.querySelector('#dg-today').innerHTML = listHtml(todayItems, 'Nada para hoje. Aproveite o dia livre!');
     content.querySelector('#dg-upcoming').innerHTML = listHtml(upcoming, 'Nada nos próximos 7 dias.');
+    U.qsa('[data-dg-item]', content.querySelector('#dg-today')).forEach(row => row.addEventListener('click', () => editOrJump(todayItems[Number(row.getAttribute('data-dg-item'))])));
+    U.qsa('[data-dg-item]', content.querySelector('#dg-upcoming')).forEach(row => row.addEventListener('click', () => editOrJump(upcoming[Number(row.getAttribute('data-dg-item'))])));
 
     U.lucide();
   }
@@ -6462,26 +6599,31 @@ window.DashboardGeral = (function () {
 
   function openDgDayModal(iso, items) {
     const dayItems = items.filter(i => i.date === iso);
-    if (!dayItems.length) return;
+    if (!dayItems.length) { novoEvento(iso); return; }
     window.UI.openModal({
       title: U.formatDateLong(iso),
       bodyHtml: `
-        <div class="timeline">
-          ${dayItems.map(i => `
-            <div class="timeline-item">
+        <div class="timeline" id="dg-day-list">
+          ${dayItems.map((i, idx) => `
+            <div class="timeline-item" data-dg-day-item="${idx}" style="cursor:pointer;">
               <div class="timeline-dot" style="background:${i.color};"></div>
               <div class="timeline-content">
                 <div class="t-title">${U.escapeHtml(i.label)}</div>
                 <div class="t-meta">${i.kind} · <span class="dg-source-tag" style="background:${i.color};">${U.escapeHtml(i.source)}</span></div>
               </div>
+              <i data-lucide="chevron-right" style="width:15px;height:15px;color:var(--text-faint); flex-shrink:0; align-self:center;"></i>
             </div>
           `).join('')}
         </div>
-        <p class="text-faint" style="font-size:11.5px; margin-top:14px;">Pra editar qualquer item, abra o módulo de origem indicado (Faculdade, Igreja, Financeiro...).</p>
       `,
-      footerHtml: `<button class="btn btn-primary" id="f-close-day">Fechar</button>`,
+      footerHtml: `<button class="btn btn-ghost" id="f-add-here"><i data-lucide="plus"></i> Novo evento nesse dia</button><button class="btn btn-primary" id="f-close-day">Fechar</button>`,
       onMount: (overlay) => {
         U.qs('#f-close-day', overlay).addEventListener('click', window.UI.closeModal);
+        U.qs('#f-add-here', overlay).addEventListener('click', () => { window.UI.closeModal(); novoEvento(iso); });
+        U.qsa('[data-dg-day-item]', overlay).forEach(row => row.addEventListener('click', () => {
+          window.UI.closeModal();
+          editOrJump(dayItems[Number(row.getAttribute('data-dg-day-item'))]);
+        }));
       }
     });
   }
@@ -7466,19 +7608,8 @@ window.IgrejaApp = (function () {
   function openEventoForm(evento, content) {
     const isEdit = !!(evento && evento.id);
     const ev = evento || { id: null, nome: '', categoria: EVENTO_CATEGORIAS[0], data: '', horario: '', local: '', descricao: '', checklist: [], arquivos: [], observacoes: '' };
-    let checklist = (ev.checklist || []).map(c => Object.assign({}, c));
+    let checklist = (ev.checklist || []).map(c => ({ id: c.id, texto: c.texto, done: !!c.feito }));
     let arquivos = (ev.arquivos || []).map(a => Object.assign({}, a));
-
-    function checklistHtml() {
-      if (!checklist.length) return `<p class="text-faint" style="font-size:12px;">Nenhum item ainda.</p>`;
-      return checklist.map(c => `
-        <div class="checklist-item ${c.feito ? 'done' : ''}" data-check-id="${c.id}">
-          <input type="checkbox" ${c.feito ? 'checked' : ''} data-check-toggle="${c.id}">
-          <span>${U.escapeHtml(c.texto)}</span>
-          <button class="icon-btn" data-check-del="${c.id}" style="width:24px;height:24px;margin-left:auto;"><i data-lucide="x"></i></button>
-        </div>
-      `).join('');
-    }
     function arquivosHtml() {
       if (!arquivos.length) return `<p class="text-faint" style="font-size:12px;">Nenhum arquivo/link ainda.</p>`;
       return arquivos.map(a => `
@@ -7532,17 +7663,9 @@ window.IgrejaApp = (function () {
       `,
       onMount: (overlay) => {
         function refreshChecklist() {
-          overlay.querySelector('#checklist-box').innerHTML = checklistHtml();
-          U.lucide();
-          U.qsa('[data-check-toggle]', overlay).forEach(cb => cb.addEventListener('change', () => {
-            const item = checklist.find(c => c.id === cb.getAttribute('data-check-toggle'));
-            item.feito = cb.checked;
-            refreshChecklist();
-          }));
-          U.qsa('[data-check-del]', overlay).forEach(btn => btn.addEventListener('click', () => {
-            checklist = checklist.filter(c => c.id !== btn.getAttribute('data-check-del'));
-            refreshChecklist();
-          }));
+          const box = overlay.querySelector('#checklist-box');
+          box.innerHTML = window.UI.checklistEditorHtml(checklist);
+          window.UI.bindChecklistEditor(box, checklist, refreshChecklist);
         }
         function refreshArquivos() {
           overlay.querySelector('#arquivos-box').innerHTML = arquivosHtml();
@@ -7558,7 +7681,7 @@ window.IgrejaApp = (function () {
         overlay.querySelector('#btn-add-check').addEventListener('click', () => {
           const input = overlay.querySelector('#f-check-new');
           if (!input.value.trim()) return;
-          checklist.push({ id: U.uid('chk'), texto: input.value.trim(), feito: false });
+          checklist.push({ id: U.uid('chk'), texto: input.value.trim(), done: false });
           input.value = '';
           refreshChecklist();
         });
@@ -7583,7 +7706,7 @@ window.IgrejaApp = (function () {
             horario: overlay.querySelector('#f-horario').value,
             descricao: overlay.querySelector('#f-desc').value,
             observacoes: overlay.querySelector('#f-obs').value,
-            checklist, arquivos,
+            checklist: checklist.map(c => ({ id: c.id, texto: c.texto, feito: c.done })), arquivos,
           };
           window.IgrejaDB.save(s => {
             if (isEdit) Object.assign(s.eventos.find(x => x.id === ev.id), payload);
@@ -7714,7 +7837,7 @@ window.EventosApp = (function () {
         <button class="filter-chip ${catFilter === 'todas' ? 'mod-chip-active' : ''}" data-cat="todas">Todas</button>
         ${categorias().map(c => `
           <button class="filter-chip ${catFilter === c.id ? 'mod-chip-active' : ''}" data-cat="${c.id}" style="${catFilter === c.id ? `background:${c.cor}22; border-color:${c.cor}; color:${c.cor};` : ''}">
-            <span style="width:7px; height:7px; border-radius:50%; background:${c.cor}; display:inline-block;"></span> ${U.escapeHtml(c.nome)}
+            <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${c.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(c.nome)}
           </button>
         `).join('')}
         <button class="icon-btn" id="btn-manage-cats" title="Gerenciar categorias"><i data-lucide="settings-2"></i></button>
@@ -7861,7 +7984,7 @@ window.EventosApp = (function () {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           ${categorias().map(c => `
             <div style="display:flex; align-items:center; gap:8px;" data-cat-row="${c.id}">
-              <span style="width:12px; height:12px; border-radius:50%; background:${c.cor}; flex-shrink:0;"></span>
+              <span style="width:12px; height:12px; min-width:12px; min-height:12px; border-radius:50%; background:${c.cor}; flex:0 0 auto; align-self:center; display:inline-block;"></span>
               <input class="cat-name-input" data-cat-id="${c.id}" value="${U.escapeHtml(c.nome)}" style="flex:1;">
               <button class="icon-btn" data-cat-del="${c.id}"><i data-lucide="trash-2"></i></button>
             </div>
@@ -7926,22 +8049,11 @@ window.EventosApp = (function () {
   }
 
   /* --------- Formulário de evento --------- */
-  function openEventoForm(evento, content) {
+  function openEventoForm(evento, content, onSaved) {
     const isEdit = !!(evento && evento.id);
     const ev = evento || { id: null, nome: '', categoriaId: categorias()[0].id, data: '', horario: '', local: '', descricao: '', checklist: [], anexos: [], observacoes: '' };
-    let checklist = (ev.checklist || []).map(c => Object.assign({}, c));
+    let checklist = (ev.checklist || []).map(c => ({ id: c.id, texto: c.texto, done: !!c.feito }));
     let anexos = (ev.anexos || []).map(a => Object.assign({}, a));
-
-    function checklistHtml() {
-      if (!checklist.length) return `<p class="text-faint" style="font-size:12px;">Nenhum item ainda.</p>`;
-      return checklist.map(c => `
-        <div class="checklist-item ${c.feito ? 'done' : ''}" data-check-id="${c.id}">
-          <input type="checkbox" ${c.feito ? 'checked' : ''} data-check-toggle="${c.id}">
-          <span>${U.escapeHtml(c.texto)}</span>
-          <button class="icon-btn" data-check-del="${c.id}" style="width:24px;height:24px;margin-left:auto;"><i data-lucide="x"></i></button>
-        </div>
-      `).join('');
-    }
     function anexosHtml() {
       if (!anexos.length) return `<p class="text-faint" style="font-size:12px;">Nenhum anexo ainda.</p>`;
       return anexos.map(a => `
@@ -7995,16 +8107,9 @@ window.EventosApp = (function () {
       `,
       onMount: (overlay) => {
         function refreshChecklist() {
-          overlay.querySelector('#checklist-box').innerHTML = checklistHtml();
-          U.lucide();
-          U.qsa('[data-check-toggle]', overlay).forEach(cb => cb.addEventListener('change', () => {
-            checklist.find(c => c.id === cb.getAttribute('data-check-toggle')).feito = cb.checked;
-            refreshChecklist();
-          }));
-          U.qsa('[data-check-del]', overlay).forEach(btn => btn.addEventListener('click', () => {
-            checklist = checklist.filter(c => c.id !== btn.getAttribute('data-check-del'));
-            refreshChecklist();
-          }));
+          const box = overlay.querySelector('#checklist-box');
+          box.innerHTML = window.UI.checklistEditorHtml(checklist);
+          window.UI.bindChecklistEditor(box, checklist, refreshChecklist);
         }
         function refreshAnexos() {
           overlay.querySelector('#anexos-box').innerHTML = anexosHtml();
@@ -8020,7 +8125,7 @@ window.EventosApp = (function () {
         overlay.querySelector('#btn-add-check').addEventListener('click', () => {
           const input = overlay.querySelector('#f-check-new');
           if (!input.value.trim()) return;
-          checklist.push({ id: U.uid('chk'), texto: input.value.trim(), feito: false });
+          checklist.push({ id: U.uid('chk'), texto: input.value.trim(), done: false });
           input.value = '';
           refreshChecklist();
         });
@@ -8045,7 +8150,7 @@ window.EventosApp = (function () {
             horario: overlay.querySelector('#f-horario').value,
             descricao: overlay.querySelector('#f-desc').value,
             observacoes: overlay.querySelector('#f-obs').value,
-            checklist, anexos,
+            checklist: checklist.map(c => ({ id: c.id, texto: c.texto, feito: c.done })), anexos,
           };
           window.EventosDB.save(s => {
             if (isEdit) Object.assign(s.eventos.find(x => x.id === ev.id), payload);
@@ -8053,21 +8158,23 @@ window.EventosApp = (function () {
           });
           window.UI.closeModal();
           window.UI.toast('Evento salvo.', 'success');
-          renderEventos(content);
+          if (content) renderEventos(content);
+          if (onSaved) onSaved();
         });
         if (isEdit) overlay.querySelector('#f-delete').addEventListener('click', () => {
           window.UI.closeModal();
           window.UI.confirmDialog('Remover este evento?', () => {
             window.EventosDB.save(s => { s.eventos = s.eventos.filter(x => x.id !== ev.id); });
             window.UI.toast('Evento removido.', 'success');
-            renderEventos(content);
+            if (content) renderEventos(content);
+            if (onSaved) onSaved();
           });
         });
       }
     });
   }
 
-  return { mount };
+  return { mount, openEventoForm };
 })();
 
 /* ==========================================================================
@@ -8730,7 +8837,7 @@ window.FinanceiroApp = (function () {
           <div>
             <div class="item-card-title">${U.escapeHtml(c.nome)} ${recorrencia ? `<i data-lucide="repeat" style="width:12px;height:12px; color:var(--text-faint); vertical-align:middle;" title="Recorrente"></i>` : ''}</div>
             <div class="item-card-meta" style="margin-top:4px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:${cat.cor}; display:inline-block;"></span> ${U.escapeHtml(cat.nome)}
+              <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(cat.nome)}
               · ${c.tipo === 'entrada' ? 'Entrada' : 'Saída'}
               ${recorrencia && recorrencia.status !== 'ativa' ? `· <span style="color:#EAB308;">${recorrencia.status === 'pausada' ? 'pausada' : 'encerrada'}</span>` : ''}
             </div>
@@ -9337,7 +9444,7 @@ window.FinanceiroApp = (function () {
           <div>
             <div class="item-card-title">${U.escapeHtml(a.nome)}</div>
             <div class="item-card-meta" style="margin-top:4px;">
-              <span style="width:7px; height:7px; border-radius:50%; background:${cat.cor}; display:inline-block;"></span> ${U.escapeHtml(cat.nome)}
+              <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(cat.nome)}
             </div>
           </div>
           <span class="status-pill" style="background:${cancelada ? '#EF444422' : ACCENT + '22'}; color:${cancelada ? '#EF4444' : ACCENT};">${cancelada ? 'Cancelada' : (a.periodicidade === 'anual' ? 'Anual' : 'Mensal')}</span>
@@ -10008,7 +10115,7 @@ window.FinanceiroApp = (function () {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           ${categorias().map(c => `
             <div style="display:flex; align-items:center; gap:8px;" data-cat-row="${c.id}">
-              <span style="width:12px; height:12px; border-radius:50%; background:${c.cor}; flex-shrink:0;"></span>
+              <span style="width:12px; height:12px; min-width:12px; min-height:12px; border-radius:50%; background:${c.cor}; flex:0 0 auto; align-self:center; display:inline-block;"></span>
               <input class="cat-name-input" data-cat-id="${c.id}" value="${U.escapeHtml(c.nome)}" style="flex:1;">
               <button class="icon-btn" data-cat-del="${c.id}"><i data-lucide="trash-2"></i></button>
             </div>
@@ -10363,7 +10470,7 @@ window.PessoalApp = (function () {
             <input type="checkbox" data-toggle-wish="${w.id}" ${w.comprado ? 'checked' : ''} style="margin-top:3px;" title="Marcar como comprado">
             <div>
               <div class="item-card-title" style="${w.comprado ? 'text-decoration:line-through;' : ''}">${U.escapeHtml(w.nome)}</div>
-              <div class="item-card-meta" style="margin-top:4px;"><span style="width:7px; height:7px; border-radius:50%; background:${cat.cor}; display:inline-block;"></span> ${U.escapeHtml(cat.nome)}</div>
+              <div class="item-card-meta" style="margin-top:4px;"><span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(cat.nome)}</div>
             </div>
           </div>
           <span class="status-pill" style="background:${prioMeta.color}22; color:${prioMeta.color};">${prioMeta.label}</span>
@@ -10380,7 +10487,7 @@ window.PessoalApp = (function () {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           ${wcats().map(c => `
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="width:12px; height:12px; border-radius:50%; background:${c.cor}; flex-shrink:0;"></span>
+              <span style="width:12px; height:12px; min-width:12px; min-height:12px; border-radius:50%; background:${c.cor}; flex:0 0 auto; align-self:center; display:inline-block;"></span>
               <input class="wc-name-input" data-cat-id="${c.id}" value="${U.escapeHtml(c.nome)}" style="flex:1;">
               <button class="icon-btn" data-cat-del="${c.id}"><i data-lucide="trash-2"></i></button>
             </div>
