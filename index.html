@@ -274,7 +274,7 @@ button { font-family: inherit; }
 .badge-success { background: rgba(34,197,94,.15); color: var(--success); }
 .badge-danger { background: rgba(239,68,68,.15); color: var(--danger); }
 .badge-warning { background: rgba(234,179,8,.15); color: var(--warning); }
-.dot { width: 8px; height: 8px; min-width: 8px; min-height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 auto; align-self: center; }
+.dot { width: 8px; height: 8px; min-width: 8px; min-height: 8px; max-width: 8px; max-height: 8px; aspect-ratio: 1 / 1; border-radius: 50%; display: inline-block; flex: 0 0 8px; align-self: center; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-elevated); border: 1px solid var(--border); padding: 3px 10px; border-radius: 100px; font-size: 11.5px; color: var(--text-muted); }
 
 /* ============================== PROGRESS ============================== */
@@ -439,7 +439,7 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
   display: flex; align-items: center; gap: 9px;
 }
 .gantt-row.alt .gantt-row-label { background: var(--row-alt-label-bg); }
-.gantt-row-dot { width: 8px; height: 8px; min-width: 8px; min-height: 8px; border-radius: 50%; flex: 0 0 auto; align-self: center; }
+.gantt-row-dot { width: 8px; height: 8px; min-width: 8px; min-height: 8px; max-width: 8px; max-height: 8px; aspect-ratio: 1 / 1; border-radius: 50%; flex: 0 0 8px; align-self: center; }
 .gantt-row-text { overflow: hidden; text-overflow: ellipsis; }
 .gantt-track { flex: 1; position: relative; height: 100%; }
 .gantt-bar {
@@ -469,13 +469,14 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 .timeline { display: flex; flex-direction: column; }
 .timeline-item { display: flex; gap: 14px; padding-bottom: 20px; position: relative; }
 .timeline-item:not(:last-child)::before { content:''; position: absolute; left: 5px; top: 16px; bottom: 0; width: 1px; background: var(--border); }
-.timeline-dot { width: 11px; height: 11px; min-width: 11px; min-height: 11px; border-radius: 50%; margin-top: 4px; flex: 0 0 auto; align-self: flex-start; border: 2px solid var(--bg-elevated); box-shadow: 0 0 0 1px var(--border); box-sizing: content-box; }
+.timeline-dot { width: 11px; height: 11px; min-width: 11px; min-height: 11px; max-width: 11px; max-height: 11px; aspect-ratio: 1 / 1; border-radius: 50%; margin-top: 4px; flex: 0 0 11px; align-self: flex-start; border: 2px solid var(--bg-elevated); box-shadow: 0 0 0 1px var(--border); box-sizing: content-box; }
 .timeline-content { flex: 1; }
 .timeline-content .t-title { font-size: 13px; font-weight: 600; }
 .timeline-content .t-meta { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; }
 
 /* ============================== CHECKLIST ============================== */
-.checklist-item { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 13px; }
+.checklist-item { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 13px; flex-wrap: wrap; }
+@media (max-width: 480px) { .checklist-item input[type="date"] { order: 3; margin-left: 25px; width: 130px; } }
 .chk-mini { width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; }
 .chk-mini svg { width: 13px; height: 13px; }
 .chk-mini:disabled { opacity: .25; cursor: default; }
@@ -946,7 +947,7 @@ table.data-table tbody tr:hover .row-actions { opacity: 1; }
 /* ---------- Financeiro: navegador de mês, cartões e fatura ---------- */
 .month-nav { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border-soft); border-radius: 100px; padding: 4px 6px; }
 .month-nav-label { font-size: 13px; font-weight: 700; min-width: 128px; text-align: center; text-transform: capitalize; }
-.card-color-dot { width: 10px; height: 10px; min-width: 10px; min-height: 10px; border-radius: 50%; flex: 0 0 auto; align-self: center; display: inline-block; }
+.card-color-dot { width: 10px; height: 10px; min-width: 10px; min-height: 10px; max-width: 10px; max-height: 10px; aspect-ratio: 1 / 1; border-radius: 50%; flex: 0 0 10px; align-self: center; display: inline-block; }
 .card-bandeira-badge { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: var(--card); border: 1px solid var(--border-soft); color: var(--text-faint); }
 .color-swatch-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .color-swatch { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; flex-shrink: 0; transition: transform .12s var(--ease); }
@@ -2046,6 +2047,7 @@ window.UI = (function () {
       <div class="checklist-item ${c.done ? 'done' : ''}" data-chk-row="${c.id}">
         <input type="checkbox" data-chk-toggle="${c.id}" ${c.done ? 'checked' : ''}>
         <span class="chk-text" data-chk-text="${c.id}" style="flex:1; cursor:text;">${U.escapeHtml(c.texto)}</span>
+        <input type="date" data-chk-date="${c.id}" value="${c.data || ''}" title="Data (opcional) — aparece no calendário geral" style="width:128px; flex-shrink:0; font-size:11.5px; padding:3px 5px;">
         <div style="display:flex; gap:2px; flex-shrink:0;">
           <button type="button" class="icon-btn chk-mini" data-chk-up="${c.id}" ${i === 0 ? 'disabled' : ''} title="Mover pra cima"><i data-lucide="chevron-up"></i></button>
           <button type="button" class="icon-btn chk-mini" data-chk-down="${c.id}" ${i === list.length - 1 ? 'disabled' : ''} title="Mover pra baixo"><i data-lucide="chevron-down"></i></button>
@@ -2061,6 +2063,10 @@ window.UI = (function () {
     U.lucide();
     container.querySelectorAll('[data-chk-toggle]').forEach(cb => cb.addEventListener('change', () => {
       list.find(c => c.id === cb.getAttribute('data-chk-toggle')).done = cb.checked;
+      onChange();
+    }));
+    container.querySelectorAll('[data-chk-date]').forEach(inp => inp.addEventListener('change', () => {
+      list.find(c => c.id === inp.getAttribute('data-chk-date')).data = inp.value;
       onChange();
     }));
     container.querySelectorAll('[data-chk-up]').forEach(b => b.addEventListener('click', () => {
@@ -6341,6 +6347,14 @@ window.DashboardGeral = (function () {
         source: disc ? disc.nome : 'Faculdade', color: disc ? (disc.cor || '#EF4444') : '#EF4444',
         moduleKey: 'tarefa', itemId: t.id,
       });
+      (t.checklist || []).forEach(c => {
+        if (!c.data) return;
+        items.push({
+          id: 'tarefachk:' + c.id, date: c.data, label: `${t.titulo} · ${c.texto}`, kind: 'Checklist',
+          source: disc ? disc.nome : 'Faculdade', color: disc ? (disc.cor || '#EF4444') : '#EF4444',
+          moduleKey: 'tarefa', itemId: t.id,
+        });
+      });
     });
     state.eventos.forEach(e => {
       if (!e.data) return;
@@ -6348,7 +6362,15 @@ window.DashboardGeral = (function () {
     });
     // As etapas do TCC (Cronograma) ficam de fora de propósito — o
     // cronograma é uma visão de planejamento interna do TCC, não um
-    // compromisso do dia a dia, e poluiria o calendário geral.
+    // compromisso do dia a dia, e poluiria o calendário geral. Os itens
+    // de checklist DENTRO de cada etapa, quando têm data, aparecem sim —
+    // são tarefas pontuais, não o cronograma em si.
+    (state.tcc.etapas || []).forEach(e => {
+      (e.checklist || []).forEach(c => {
+        if (!c.data) return;
+        items.push({ id: 'etapachk:' + c.id, date: c.data, label: `TCC · ${e.nome} · ${c.texto}`, kind: 'Checklist', source: 'Faculdade', color: '#C084FC', moduleKey: null, itemId: e.id });
+      });
+    });
     // Observação: atividades de disciplina já são tarefas (state.tarefas)
     // vinculadas via disciplinaId — cobertas no loop acima, coloridas com
     // a cor da disciplina em vez do vermelho genérico.
@@ -6363,6 +6385,10 @@ window.DashboardGeral = (function () {
       (ig.eventos || []).forEach(e => {
         if (!e.data) return;
         items.push({ id: 'ievento:' + e.id, date: e.data, label: e.nome, kind: 'Evento · Igreja', source: 'Igreja', color: '#22C55E', moduleKey: 'igreja', itemId: e.id, jumpRoute: 'igreja' });
+        (e.checklist || []).forEach(c => {
+          if (!c.data) return;
+          items.push({ id: 'ieventochk:' + c.id, date: c.data, label: `${e.nome} · ${c.texto}`, kind: 'Checklist', source: 'Igreja', color: '#22C55E', moduleKey: 'igreja', itemId: e.id, jumpRoute: 'igreja' });
+        });
       });
     }
 
@@ -6373,6 +6399,10 @@ window.DashboardGeral = (function () {
         if (!e.data) return;
         const cat = evState.categorias.find(c => c.id === e.categoriaId);
         items.push({ id: 'pevento:' + e.id, date: e.data, label: e.nome, kind: 'Evento · ' + (cat ? cat.nome : 'Pessoal'), source: 'Eventos', color: (cat && cat.cor) || '#A855F7', moduleKey: 'eventoPessoal', itemId: e.id });
+        (e.checklist || []).forEach(c => {
+          if (!c.data) return;
+          items.push({ id: 'peventochk:' + c.id, date: c.data, label: `${e.nome} · ${c.texto}`, kind: 'Checklist', source: 'Eventos', color: (cat && cat.cor) || '#A855F7', moduleKey: 'eventoPessoal', itemId: e.id });
+        });
       });
     }
 
@@ -7641,7 +7671,7 @@ window.IgrejaApp = (function () {
 
           <div class="field span-2">
             <label>Checklist</label>
-            <div id="checklist-box">${checklistHtml()}</div>
+            <div id="checklist-box">${window.UI.checklistEditorHtml(checklist)}</div>
             <div class="checklist-add"><input id="f-check-new" placeholder="Novo item..."><button class="btn btn-soft btn-sm" id="btn-add-check">Adicionar</button></div>
           </div>
 
@@ -7837,7 +7867,7 @@ window.EventosApp = (function () {
         <button class="filter-chip ${catFilter === 'todas' ? 'mod-chip-active' : ''}" data-cat="todas">Todas</button>
         ${categorias().map(c => `
           <button class="filter-chip ${catFilter === c.id ? 'mod-chip-active' : ''}" data-cat="${c.id}" style="${catFilter === c.id ? `background:${c.cor}22; border-color:${c.cor}; color:${c.cor};` : ''}">
-            <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${c.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(c.nome)}
+            <span style="width:7px; height:7px; min-width:7px; min-height:7px; max-width:7px; max-height:7px; aspect-ratio:1/1; border-radius:50%; background:${c.cor}; display:inline-block; flex:0 0 7px; align-self:center;"></span> ${U.escapeHtml(c.nome)}
           </button>
         `).join('')}
         <button class="icon-btn" id="btn-manage-cats" title="Gerenciar categorias"><i data-lucide="settings-2"></i></button>
@@ -7984,7 +8014,7 @@ window.EventosApp = (function () {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           ${categorias().map(c => `
             <div style="display:flex; align-items:center; gap:8px;" data-cat-row="${c.id}">
-              <span style="width:12px; height:12px; min-width:12px; min-height:12px; border-radius:50%; background:${c.cor}; flex:0 0 auto; align-self:center; display:inline-block;"></span>
+              <span style="width:12px; height:12px; min-width:12px; min-height:12px; max-width:12px; max-height:12px; aspect-ratio:1/1; border-radius:50%; background:${c.cor}; flex:0 0 12px; align-self:center; display:inline-block;"></span>
               <input class="cat-name-input" data-cat-id="${c.id}" value="${U.escapeHtml(c.nome)}" style="flex:1;">
               <button class="icon-btn" data-cat-del="${c.id}"><i data-lucide="trash-2"></i></button>
             </div>
@@ -8085,7 +8115,7 @@ window.EventosApp = (function () {
 
           <div class="field span-2">
             <label>Checklist</label>
-            <div id="checklist-box">${checklistHtml()}</div>
+            <div id="checklist-box">${window.UI.checklistEditorHtml(checklist)}</div>
             <div class="checklist-add"><input id="f-check-new" placeholder="Novo item..."><button class="btn btn-soft btn-sm" id="btn-add-check">Adicionar</button></div>
           </div>
 
@@ -8837,7 +8867,7 @@ window.FinanceiroApp = (function () {
           <div>
             <div class="item-card-title">${U.escapeHtml(c.nome)} ${recorrencia ? `<i data-lucide="repeat" style="width:12px;height:12px; color:var(--text-faint); vertical-align:middle;" title="Recorrente"></i>` : ''}</div>
             <div class="item-card-meta" style="margin-top:4px;">
-              <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(cat.nome)}
+              <span style="width:7px; height:7px; min-width:7px; min-height:7px; max-width:7px; max-height:7px; aspect-ratio:1/1; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 7px; align-self:center;"></span> ${U.escapeHtml(cat.nome)}
               · ${c.tipo === 'entrada' ? 'Entrada' : 'Saída'}
               ${recorrencia && recorrencia.status !== 'ativa' ? `· <span style="color:#EAB308;">${recorrencia.status === 'pausada' ? 'pausada' : 'encerrada'}</span>` : ''}
             </div>
@@ -9444,7 +9474,7 @@ window.FinanceiroApp = (function () {
           <div>
             <div class="item-card-title">${U.escapeHtml(a.nome)}</div>
             <div class="item-card-meta" style="margin-top:4px;">
-              <span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(cat.nome)}
+              <span style="width:7px; height:7px; min-width:7px; min-height:7px; max-width:7px; max-height:7px; aspect-ratio:1/1; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 7px; align-self:center;"></span> ${U.escapeHtml(cat.nome)}
             </div>
           </div>
           <span class="status-pill" style="background:${cancelada ? '#EF444422' : ACCENT + '22'}; color:${cancelada ? '#EF4444' : ACCENT};">${cancelada ? 'Cancelada' : (a.periodicidade === 'anual' ? 'Anual' : 'Mensal')}</span>
@@ -10115,7 +10145,7 @@ window.FinanceiroApp = (function () {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           ${categorias().map(c => `
             <div style="display:flex; align-items:center; gap:8px;" data-cat-row="${c.id}">
-              <span style="width:12px; height:12px; min-width:12px; min-height:12px; border-radius:50%; background:${c.cor}; flex:0 0 auto; align-self:center; display:inline-block;"></span>
+              <span style="width:12px; height:12px; min-width:12px; min-height:12px; max-width:12px; max-height:12px; aspect-ratio:1/1; border-radius:50%; background:${c.cor}; flex:0 0 12px; align-self:center; display:inline-block;"></span>
               <input class="cat-name-input" data-cat-id="${c.id}" value="${U.escapeHtml(c.nome)}" style="flex:1;">
               <button class="icon-btn" data-cat-del="${c.id}"><i data-lucide="trash-2"></i></button>
             </div>
@@ -10470,7 +10500,7 @@ window.PessoalApp = (function () {
             <input type="checkbox" data-toggle-wish="${w.id}" ${w.comprado ? 'checked' : ''} style="margin-top:3px;" title="Marcar como comprado">
             <div>
               <div class="item-card-title" style="${w.comprado ? 'text-decoration:line-through;' : ''}">${U.escapeHtml(w.nome)}</div>
-              <div class="item-card-meta" style="margin-top:4px;"><span style="width:7px; height:7px; min-width:7px; min-height:7px; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 auto; align-self:center;"></span> ${U.escapeHtml(cat.nome)}</div>
+              <div class="item-card-meta" style="margin-top:4px;"><span style="width:7px; height:7px; min-width:7px; min-height:7px; max-width:7px; max-height:7px; aspect-ratio:1/1; border-radius:50%; background:${cat.cor}; display:inline-block; flex:0 0 7px; align-self:center;"></span> ${U.escapeHtml(cat.nome)}</div>
             </div>
           </div>
           <span class="status-pill" style="background:${prioMeta.color}22; color:${prioMeta.color};">${prioMeta.label}</span>
@@ -10487,7 +10517,7 @@ window.PessoalApp = (function () {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           ${wcats().map(c => `
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="width:12px; height:12px; min-width:12px; min-height:12px; border-radius:50%; background:${c.cor}; flex:0 0 auto; align-self:center; display:inline-block;"></span>
+              <span style="width:12px; height:12px; min-width:12px; min-height:12px; max-width:12px; max-height:12px; aspect-ratio:1/1; border-radius:50%; background:${c.cor}; flex:0 0 12px; align-self:center; display:inline-block;"></span>
               <input class="wc-name-input" data-cat-id="${c.id}" value="${U.escapeHtml(c.nome)}" style="flex:1;">
               <button class="icon-btn" data-cat-del="${c.id}"><i data-lucide="trash-2"></i></button>
             </div>
